@@ -80,10 +80,10 @@ const Login: React.FC = () => {
         }
 
         const data = await response.json();
-        const uniqueSessionId = crypto.randomUUID(); 
+        
         
         localStorage.setItem('audit_active_user', data.username);
-        localStorage.setItem('audit_session_id', uniqueSessionId);
+        localStorage.setItem('audit_session_id', data.sessionId);
         navigate('/');
       } catch (err) {
         setErrorMsg('Failed to connect to the authentication server.');

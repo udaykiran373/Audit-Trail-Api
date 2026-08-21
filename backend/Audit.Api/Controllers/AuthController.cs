@@ -1,11 +1,10 @@
 using System;
 using System.Threading.Tasks;
 using Audit.Api.Models;
-using Audit.Api.Repositories;
 using Audit.Api.Supervisors;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using MongoDB.Driver;
+using Audit.Api.Supervisors;
 
 namespace Audit.Api.Controllers;
 
@@ -13,13 +12,11 @@ namespace Audit.Api.Controllers;
 [Route("api/[controller]")]
 public class AuthController : ControllerBase
 {
-    private readonly IMongoCollection<User> _usersCollection;
-    private readonly IAuditLoggingSupervisor _loggingSupervisor;
+    private readonly IAuthSupervisor _authSupervisor;
 
-    public AuthController(MongoDbContext dbContext, IAuditLoggingSupervisor loggingSupervisor)
+    public AuthController(IAuthSupervisor authSupervisor)
     {
-        _usersCollection = dbContext.Database.GetCollection<User>("users");
-        _loggingSupervisor = loggingSupervisor;
+        _authSupervisor = authSupervisor;
     }
 
     [HttpPost("signup")]
@@ -30,29 +27,19 @@ public class AuthController : ControllerBase
             return BadRequest(new { Message = "Username and password are required." });
         }
 
-        var usernameLower = signupRequest.Username.Trim().ToLowerInvariant();
-        var userExists = await _usersCollection.Find(u => u.Username.ToLower() == usernameLower).AnyAsync();
-        if (userExists)
-        {
-            return BadRequest(new { Message = "Username already exists." });
-        }
+        var result = await _authSupervisor.SignUpAsync(
+            signupRequest.Username,
+            signupRequest.Password,
+            Request.Headers.UserAgent.ToString(),
+            HttpContext.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1",
+            HttpContext.Request.Path,
+            GetCorrelationId()
+        );
 
-        var newUser = new User
-        {
-            Username = signupRequest.Username.Trim(),
-            Password = signupRequest.Password.Trim(),
-            CreatedAt = DateTime.UtcNow
-        };
+        if (!result.Success) return BadRequest(new { Message = result.Message });
 
-        await _usersCollection.InsertOneAsync(newUser);
-
-        // Log the signup to the Audit Trail in real-time
-        await LogAuthenticationEventAsync(newUser.Username, "USER_REGISTERED", "SUCCESS", new()
-        {
-            { "registeredUsername", newUser.Username }
-        });
-
-        return Ok(new { Message = "Registration successful." });
+        HttpContext.Items["AuditLogWritten"] = true;
+        return Ok(new { Message = result.Message, Username = signupRequest.Username, SessionId = result.SessionId });
     }
 
     [HttpPost("login")]
@@ -63,53 +50,48 @@ public class AuthController : ControllerBase
             return BadRequest(new { Message = "Username and password are required." });
         }
 
-        var usernameLower = loginRequest.Username.Trim().ToLowerInvariant();
-        var user = await _usersCollection.Find(u => u.Username.ToLower() == usernameLower && u.Password == loginRequest.Password.Trim()).FirstOrDefaultAsync();
+        var result = await _authSupervisor.LoginAsync(
+            loginRequest.Username,
+            loginRequest.Password,
+            Request.Headers.UserAgent.ToString(),
+            HttpContext.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1",
+            HttpContext.Request.Path,
+            GetCorrelationId()
+        );
 
-        if (user == null)
-        {
-            // Log failed login event in real-time
-            await LogAuthenticationEventAsync(loginRequest.Username, "LOGIN_FAILED", "FAILED", new()
-            {
-                { "usernameTried", loginRequest.Username },
-                { "reason", "Invalid credentials" }
-            });
+        if (!result.Success) return Unauthorized(new { Message = result.Message });
 
-            return Unauthorized(new { Message = "Invalid username or password." });
-        }
-
-        // Set Cookie containing the username session
         var cookieOptions = new CookieOptions
         {
             HttpOnly = true,
-            Secure = false, // Set false for HTTP local dev testing
+            Secure = false,
             SameSite = SameSiteMode.Lax,
             Expires = DateTime.UtcNow.AddDays(7)
         };
-        Response.Cookies.Append("AuditSession", user.Username, cookieOptions);
+        Response.Cookies.Append("AuditSession", result.User!.Username, cookieOptions);
 
-        // Log successful login event in real-time
-        await LogAuthenticationEventAsync(user.Username, "LOGIN_SUCCESS", "SUCCESS", new()
-        {
-            { "username", user.Username }
-        });
-
-        return Ok(new { Message = "Login successful.", Username = user.Username });
+        HttpContext.Items["AuditLogWritten"] = true;
+        return Ok(new { Message = result.Message, Username = result.User.Username, SessionId = result.SessionId });
     }
 
     [HttpPost("logout")]
     public async Task<IActionResult> Logout()
     {
         var activeUser = Request.Cookies["AuditSession"] ?? "anonymous";
+        var sessionId = GetSessionId(activeUser);
 
         Response.Cookies.Delete("AuditSession");
 
-        // Log logout event in real-time
-        await LogAuthenticationEventAsync(activeUser, "LOGOUT", "SUCCESS", new()
-        {
-            { "username", activeUser }
-        });
+        await _authSupervisor.LogoutAsync(
+            activeUser,
+            sessionId,
+            Request.Headers.UserAgent.ToString(),
+            HttpContext.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1",
+            HttpContext.Request.Path,
+            GetCorrelationId()
+        );
 
+        HttpContext.Items["AuditLogWritten"] = true;
         return Ok(new { Message = "Logout successful." });
     }
 
@@ -124,26 +106,22 @@ public class AuthController : ControllerBase
         return Ok(new { Username = activeUser });
     }
 
-    private async Task LogAuthenticationEventAsync(string userId, string action, string status, System.Collections.Generic.Dictionary<string, object> metadata)
+    // --- Controller Web Helpers ---
+
+    private string GetCorrelationId()
     {
-        var sessionId = "sess_" + userId;
-        var log = new AuditLog
+        return HttpContext.Items.TryGetValue("X-Correlation-ID", out var cid)
+            ? cid?.ToString() ?? Guid.NewGuid().ToString()
+            : Guid.NewGuid().ToString();
+    }
+
+    private string GetSessionId(string userId)
+    {
+        var sessionId = Request.Headers["X-Session-ID"].ToString();
+        if (string.IsNullOrWhiteSpace(sessionId))
         {
-            Timestamp = DateTime.UtcNow,
-            UserId = userId,
-            SessionId = sessionId,
-            EventType = "AUTHENTICATION",
-            Module = "Auth",
-            Action = action,
-            Status = status,
-            CorrelationId = HttpContext.Items.TryGetValue("X-Correlation-ID", out var cid) ? cid?.ToString() ?? Guid.NewGuid().ToString() : Guid.NewGuid().ToString(),
-            RequestPath = HttpContext.Request.Path,
-            IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1",
-            UserAgent = Request.Headers.UserAgent.ToString(),
-            Metadata = metadata
-        };
-        await _loggingSupervisor.LogAsync(log);
-        // Mark that an audit log was written by the controller for this request
-        HttpContext.Items["AuditLogWritten"] = true;
+            sessionId = "sess_" + userId;
+        }
+        return sessionId;
     }
 }

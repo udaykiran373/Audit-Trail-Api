@@ -35,3 +35,10 @@ C:\Users\91798\Desktop\projects\tescra\Audit\backend\Audit.Api\obj\Debug\net10.0
 C:\Users\91798\Desktop\projects\tescra\Audit\backend\Audit.Api\obj\Debug\net10.0\Audit.Api.genruntimeconfig.cache
 C:\Users\91798\Desktop\projects\tescra\Audit\backend\Audit.Api\obj\Debug\net10.0\ref\Audit.Api.dll
 C:\Users\91798\Desktop\projects\tescra\Audit\backend\Audit.Api\bin\Debug\net10.0\Audit.Api.staticwebassets.runtime.json
+C:\Users\91798\Desktop\projects\tescra\Audit\backend\Audit.Api\obj\Debug\net10.0\Audit.Api.sourcelink.json
+C:\Users\91798\Desktop\projects\tescra\Audit\backend\Audit.Api\bin\Debug\net10.0\Microsoft.Bcl.Cryptography.dll
+C:\Users\91798\Desktop\projects\tescra\Audit\backend\Audit.Api\bin\Debug\net10.0\Microsoft.IdentityModel.Abstractions.dll
+C:\Users\91798\Desktop\projects\tescra\Audit\backend\Audit.Api\bin\Debug\net10.0\Microsoft.IdentityModel.JsonWebTokens.dll
+C:\Users\91798\Desktop\projects\tescra\Audit\backend\Audit.Api\bin\Debug\net10.0\Microsoft.IdentityModel.Logging.dll
+C:\Users\91798\Desktop\projects\tescra\Audit\backend\Audit.Api\bin\Debug\net10.0\Microsoft.IdentityModel.Tokens.dll
+C:\Users\91798\Desktop\projects\tescra\Audit\backend\Audit.Api\bin\Debug\net10.0\System.IdentityModel.Tokens.Jwt.dll

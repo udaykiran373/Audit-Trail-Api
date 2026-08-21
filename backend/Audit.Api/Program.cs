@@ -5,6 +5,8 @@ using Audit.Api.Middleware;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Audit.Api.Repositories;
+using Audit.Api.Supervisors;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -24,6 +26,8 @@ builder.Services.AddScoped<IAuditLogQueriesSupervisor, AuditLogQueriesSupervisor
 builder.Services.AddScoped<IPostSupervisor, PostSupervisor>();
 builder.Services.AddScoped<IResumeSupervisor, ResumeSupervisor>();
 builder.Services.AddScoped<IAssessmentSupervisor, AssessmentSupervisor>();
+builder.Services.AddScoped<IAuthRepository, AuthRepository>();
+builder.Services.AddScoped<IAuthSupervisor, AuthSupervisor>();
 builder.Services.AddScoped<Audit.Api.Services.IAiInterviewService, Audit.Api.Services.AiInterviewService>();
 // Add API Controllers services and enforce camelCase JSON for frontend compatibility
 builder.Services.AddControllers().AddJsonOptions(opts =>

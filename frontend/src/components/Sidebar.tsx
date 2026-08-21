@@ -10,8 +10,14 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage }) => {
   const activeUser = localStorage.getItem('audit_active_user') || 'anonymous';
 
   const handleLogout = async () => {
+    const activeSessionId = localStorage.getItem('audit_session_id') || '';
     try {
-      await fetch('http://localhost:5081/api/auth/logout', { method: 'POST', credentials: 'include' });
+      await fetch('http://localhost:5081/api/auth/logout', { method: 'POST',
+        headers:{
+          'Content-Type':'application/json',
+          'X-Session-ID': activeSessionId
+        },
+        credentials: 'include' });
     } catch (err) {
       console.error('Logout backend request failed:', err);
     }

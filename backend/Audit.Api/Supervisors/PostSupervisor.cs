@@ -54,7 +54,8 @@ public class PostSupervisor : IPostSupervisor
         var updated = await _postRepository.LikePostAsync(id, userId);
         if (updated != null)
         {
-            await LogEventAsync("LIKE_POST", "SUCCESS", userId, userAgent, ipAddress, requestPath, correlationId, sessionId, new Dictionary<string, object>
+            string actionType = updated.Likes > postBefore.Likes ? "LIKE_POST" : "UNLIKE_POST";
+            await LogEventAsync(actionType, "SUCCESS", userId, userAgent, ipAddress, requestPath, correlationId, sessionId, new Dictionary<string, object>
             {
                 { "postId", id },
                 { "author", postBefore.Author },

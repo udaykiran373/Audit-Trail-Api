@@ -83,31 +83,7 @@ public class ResumeController : ControllerBase
             : Guid.NewGuid().ToString();
     }
 
-    [HttpPost("upload-video")]
-    public async Task<IActionResult> UploadVideo([FromForm] IFormFile videoFile, [FromForm] string username)
-    {
-        if (videoFile == null || videoFile.Length == 0)
-        {
-            return BadRequest(new { Message = "No video file provided." });
-        }
 
-        var uploadsRoot = Path.Combine(_env.WebRootPath ?? "wwwroot", "uploads", "resumes");
-        Directory.CreateDirectory(uploadsRoot);
-
-        var ext = Path.GetExtension(videoFile.FileName);
-        var safeName = string.IsNullOrWhiteSpace(username) ? "anon" : username.Replace("@", "_").Replace(" ", "_");
-        var fileName = $"{safeName}_{Guid.NewGuid().ToString("N")}{ext}";
-        var savePath = Path.Combine(uploadsRoot, fileName);
-
-        await using (var fs = System.IO.File.Create(savePath))
-        {
-            await videoFile.CopyToAsync(fs);
-        }
-
-        var relative = $"/uploads/resumes/{fileName}";
-        HttpContext.Items["AuditLogWritten"] = true;
-        return Ok(new { url = relative });
-    }
     // Paste this at the bottom of ResumeController.cs
     private string GetSessionId(string userId)
     {

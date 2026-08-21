@@ -42,13 +42,15 @@ public class AssessmentSupervisor : IAssessmentSupervisor
         int score = 0;
         int correctCount = 0;
 
+        // 1. Calculate the natural score
         if (category.Equals("Data Structures & Algorithms", StringComparison.OrdinalIgnoreCase))
         {
-            // For verbal DSA interview, score is determined by proctoring compliance
-            score = Math.Max(40, 95 - (warningsCount * 20));
+            // DSA is verbal, so natural score is based on minor infractions
+            score = Math.Max(0, 95 - (warningsCount * 20));
         }
         else
         {
+            // Multiple choice tests calculate exactly what was answered correctly
             foreach (var q in questions)
             {
                 if (q.Id != null && answers.TryGetValue(q.Id, out int selectedOption))
@@ -64,6 +66,13 @@ public class AssessmentSupervisor : IAssessmentSupervisor
 
         bool passed = score >= 70;
 
+        // 2. Apply the Disqualification Override (The Fix)
+        if (warningsCount >= 3)
+        {
+            score = 0;
+            passed = false;
+        }
+
         var assessment = new Assessment
         {
             Username = username,
@@ -78,11 +87,11 @@ public class AssessmentSupervisor : IAssessmentSupervisor
 
         var saved = await _assessmentRepository.SaveAssessmentAsync(assessment);
 
-        // Determine score metadata: if the candidate failed, report "Failed"; for DSA passing remains "Pending".
+        // Determine score metadata for the audit log
         string scoreMetadata;
         if (!passed)
         {
-            scoreMetadata = "Failed";
+            scoreMetadata = warningsCount >= 3 ? "Disqualified (0%)" : "Failed";
         }
         else if (category.Equals("Data Structures & Algorithms", StringComparison.OrdinalIgnoreCase))
         {
