@@ -70,10 +70,10 @@ export const TimelineView: React.FC<TimelineViewProps> = ({ logs, title, onClose
                   <div className="timeline-meta">
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <span className="badge badge-info" style={{ fontSize: '9px', padding: '2px 6px' }}>
-                        {log.module}
+                        {log.eventType}
                       </span>
                       <span style={{ fontWeight: 600, fontSize: '14px', display: 'flex', alignItems: 'center' }}>
-                        {log.action}
+                        {log.module}
                         {getStatusIcon(log.status)}
                       </span>
                     </div>

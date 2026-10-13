@@ -11,8 +11,7 @@ public class AuditLog
     public string SessionId { get; set; } = string.Empty;
     public string EventType { get; set; } = string.Empty;
     public string Module { get; set; } = string.Empty;
-    public string Action { get; set; } = string.Empty;
-    public string Status { get; set; } = string.Empty;
+        public string Status { get; set; } = string.Empty;
     public string CorrelationId { get; set; } = string.Empty;
     public string? RequestPath { get; set; }
     public string IpAddress { get; set; } = string.Empty;

@@ -57,7 +57,7 @@ export const LogDetailsModal: React.FC<LogDetailsModalProps> = ({
               {log.eventType}
             </span>
             <h4 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)' }}>
-              {log.action}
+              {log.module}
             </h4>
             <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
               Logged on {new Date(log.timestamp).toLocaleString()}
@@ -77,10 +77,6 @@ export const LogDetailsModal: React.FC<LogDetailsModalProps> = ({
               <div className="detail-value" style={{ fontFamily: 'var(--font-mono)' }}>
                 {log.sessionId}
               </div>
-            </div>
-            <div>
-              <div className="detail-label">Module Layer</div>
-              <div className="detail-value">{log.module}</div>
             </div>
             <div>
               <div className="detail-label">Execution Status</div>

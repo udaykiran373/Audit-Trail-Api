@@ -13,9 +13,9 @@ The backend is built around a standard layered API architecture, organized into 
 ```
                   ┌──────────────────────────────────────────────┐
                   │                 CONTROLLERS                  │
-                  │  (AuditController, SimulationController,     │
-                  │   PostController, AuthController,            │
-                  │   ResumeController, AssessmentController)    │
+                  │  (AuditController, PostController,           │
+                  │   AuthController, ResumeController,          │
+                  │   AssessmentController)                      │
                   └──────────────────────┬───────────────────────┘
                                          ▼
                   ┌──────────────────────────────────────────────┐
@@ -34,7 +34,7 @@ The backend is built around a standard layered API architecture, organized into 
                                   [( MongoDB )]
 ```
 
-- **Controllers**: Exposes HTTP REST endpoints for dashboard queries, demo simulations, real-time posts, cookie session authentication, profile resumes, and skill assessments. Handlers delegate processing directly to their corresponding supervisor.
+- **Controllers**: Exposes HTTP REST endpoints for dashboard queries, real-time posts, cookie session authentication, profile resumes, and skill assessments. Handlers delegate processing directly to their corresponding supervisor.
 - **Supervisors**: Contains business rules, validations, database transaction boundaries, and orchestrates explicit business log writes.
 - **Repositories**: Houses the database client connection and Bson-to-model repository mappings for CRUD operations.
 - **Middleware**: Intercepts requests to inject correlation IDs and automatically log events or capture system crashes.
@@ -48,7 +48,6 @@ The backend is built around a standard layered API architecture, organized into 
 ├── backend/Audit.Api/              # .NET 10 Web API Backend
 │   ├── Controllers/                # REST Controller Endpoints (request/response validation)
 │   │   ├── AuditController.cs
-│   │   ├── SimulationController.cs
 │   │   ├── PostController.cs       # Hub Posts Controller
 │   │   ├── AuthController.cs       # Cookie Session Auth Controller
 │   │   ├── ResumeController.cs     # Resume Profile Controller
@@ -80,7 +79,6 @@ The backend is built around a standard layered API architecture, organized into 
     │   ├── pages/                  # Routed Pages (react-router-dom)
     │   │   ├── Login.tsx           # Authentication Portal Page (Route: '/login')
     │   │   ├── Dashboard.tsx       # Live Audit Analytics Page (Route: '/')
-    │   │   ├── Simulation.tsx      # Full-page Simulator UI (Route: '/simulate')
     │   │   ├── Hub.tsx             # Achnet Community Hub Feed Page (Route: '/hub')
     │   │   ├── ResumePage.tsx      # Achnet Profile Resume Builder (Route: '/resume')
     │   │   └── AssessmentPage.tsx  # Skill Assessment Quiz Board (Route: '/assessment')

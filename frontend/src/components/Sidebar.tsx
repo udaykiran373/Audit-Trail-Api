@@ -1,9 +1,9 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Shield, MessageSquare, FileText, Award, Cpu, LogOut, Video } from 'lucide-react';
+import { Shield, MessageSquare, FileText, Award, LogOut, Video } from 'lucide-react';
 
 interface SidebarProps {
-  activePage: 'dashboard' | 'hub' | 'resume' | 'assessment' | 'simulator' | 'interview';
+  activePage: 'dashboard' | 'hub' | 'resume' | 'assessment' | 'interview';
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ activePage }) => {
@@ -32,7 +32,6 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage }) => {
     { id: 'resume', name: 'Resume Builder', path: '/resume', icon: FileText },
     { id: 'assessment', name: 'Skill Assessments', path: '/assessment', icon: Award },
     { id: 'interview', name: 'AI Interview', path: '/interview', icon: Video },
-    { id: 'simulator', name: 'Event Simulator', path: '/simulate', icon: Cpu },
   ];
 
   return (

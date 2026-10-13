@@ -45,13 +45,12 @@ export const LogFilters: React.FC<LogFiltersProps> = ({ filters, onChange, onRes
           className="input-field"
         >
           <option value="">All Event Types</option>
-          <option value="AUTHENTICATION">Authentication</option>
-          <option value="INTERVIEW">Interview</option>
-          <option value="ASSESSMENT">Assessment</option>
-          <option value="API_CALL">API Call</option>
-          <option value="API_FAILURE">API Failure</option>
-          <option value="ERROR">System Error</option>
-          <option value="BUSINESS_EVENT">Business Event</option>
+          <option value="Authentication">Authentication</option>
+          <option value="Interview">Interview</option>
+          <option value="Assessment">Assessment</option>
+          <option value="Resume">Resume</option>
+          <option value="Hub">Hub</option>
+          <option value="API">API</option>
         </select>
       </div>
 
@@ -71,20 +70,41 @@ export const LogFilters: React.FC<LogFiltersProps> = ({ filters, onChange, onRes
         </select>
       </div>
 
-      {/* Module Filter */}
-      <div style={{ flex: '1 1 120px' }}>
+      <div style={{ flex: '1 1 150px' }}>
         <select
           name="module"
           value={filters.module || ''}
           onChange={handleInputChange}
           className="input-field"
         >
-          <option value="">All Modules</option>
-          <option value="Auth">Auth</option>
-          <option value="Interview">Interview</option>
-          <option value="Assessment">Assessment</option>
-          <option value="API">API</option>
-          <option value="Simulation">Simulation</option>
+          <option value="">All Modules (Actions)</option>
+          <optgroup label="Assessment & Interview">
+            <option value="Opened">Opened</option>
+            <option value="PermissionsGranted">Permissions Granted</option>
+            <option value="Started">Started</option>
+            <option value="ProctoringWarning">Proctoring Warning</option>
+            <option value="Submitted">Submitted</option>
+            <option value="Completed">Completed</option>
+            <option value="InterviewCompleted">Interview Completed</option>
+          </optgroup>
+          <optgroup label="Authentication">
+            <option value="USER_REGISTERED">User Registered</option>
+            <option value="LOGIN_SUCCESS">Login Success</option>
+            <option value="LOGIN_FAILED">Login Failed</option>
+            <option value="LOGOUT">Logout</option>
+          </optgroup>
+          <optgroup label="Hub / Posts">
+            <option value="VIEW_HUB">View Hub</option>
+            <option value="CREATE_POST">Create Post</option>
+            <option value="LIKE_POST">Like Post</option>
+            <option value="UNLIKE_POST">Unlike Post</option>
+            <option value="DELETE_POST">Delete Post</option>
+          </optgroup>
+          <optgroup label="Resume">
+            <option value="VIEW_RESUME">View Resume</option>
+            <option value="RESUME_UPDATED">Resume Updated</option>
+            <option value="RESUME_DOWNLOADED">Resume Downloaded</option>
+          </optgroup>
         </select>
       </div>
 

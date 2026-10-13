@@ -87,11 +87,6 @@ public class AuditLoggingMiddleware
                 }
 
                 var module = "API";
-                if (path.Contains("/simulation/"))
-                {
-                    module = "Simulation";
-                    eventType = "BUSINESS_EVENT";
-                }
 
                 var action = $"{context.Request.Method} {path}";
 
@@ -116,9 +111,8 @@ public class AuditLoggingMiddleware
                     Timestamp = timestamp,
                     UserId = userId,
                     SessionId = sessionId,
-                    EventType = eventType,
-                    Module = module,
-                    Action = action,
+                    EventType = module,
+                    Module = action,
                     Status = status,
                     CorrelationId = correlationId,
                     RequestPath = path,

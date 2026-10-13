@@ -2,8 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Briefcase, FileText, Plus, Trash2, User, BookOpen, Settings, Check, Download, Globe, Camera, Upload, X } from 'lucide-react';
 import type { Resume, WorkExperience, EducationItem, ProjectItem } from '../types';
 import Sidebar from '../components/Sidebar';
-
-const API_BASE_URL = 'http://localhost:5081/api';
+import {API_BASE_URL} from '../config';
+// const API_BASE_URL = 'http://localhost:5081/api';
 
 const ResumePage: React.FC = () => {
   const activeUser = localStorage.getItem('audit_active_user') || 'anonymous';
@@ -308,9 +308,8 @@ const ResumePage: React.FC = () => {
         body: JSON.stringify({
           sessionId: activeSessionId,
           userId: activeUser,
-          eventType: 'BUSINESS_EVENT',
-          module: 'Resume',
-          action: 'RESUME_DOWNLOADED',
+          eventType: 'Resume',
+          module: 'RESUME_DOWNLOADED',
           status: 'SUCCESS',
           metadata: {
             fullName: resume.fullName || 'Anonymous User',

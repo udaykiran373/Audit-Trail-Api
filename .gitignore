@@ -1,0 +1,25 @@
+# Build outputs and generated files
+**/bin/
+**/obj/
+
+# Local configuration and secrets
+**/appsettings.Local.json
+**/appsettings.*.Local.json
+.env
+.env.*
+!.env.example
+
+# Frontend dependencies and build output
+frontend/node_modules/
+frontend/dist/
+
+# Locally uploaded assessment recordings and documents
+backend/Audit.Api/wwwroot/uploads/
+
+# IDE and OS files
+.vs/
+.vscode/
+*.user
+*.suo
+Thumbs.db
+.DS_Store

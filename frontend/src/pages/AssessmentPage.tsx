@@ -1,15 +1,49 @@
+// Import React and the React hooks used in this component.
 import React, { useState, useEffect, useRef } from 'react';
+
+// Import the component responsible for face-detection/proctoring.
+
 import AssessmentRoom from '../components/AssessmentRoom';
-import { Award, BookOpen, CheckCircle, XCircle, Timer, RefreshCw, Video, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
+
+// Import icons used in the assessment UI.
+import {
+  Award,
+  BookOpen,
+  CheckCircle,
+  XCircle,
+  Timer,
+  RefreshCw,
+  Video,
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp
+} from 'lucide-react';
+
+// Import TypeScript types used for questions and assessment history.
 import type { Question, Assessment } from '../types';
+
+// Import the sidebar component.
 import Sidebar from '../components/Sidebar';
+import { API_BASE_URL } from '../config.js';
 
-  const API_BASE_URL = 'http://localhost:5081/api';
-  const API_ORIGIN = API_BASE_URL.replace('/api', '');
 
+// Base URL of the backend API.
+// const API_BASE_URL = 'http://localhost:5081/api';
+
+// Remove '/api' to get the backend server origin.
+const API_ORIGIN = API_BASE_URL.replace('/api', '');
+
+
+// Main React component for the assessment page.
 const AssessmentPage: React.FC = () => {
-  const activeUser = localStorage.getItem('audit_active_user') || 'anonymous';
 
+  // Get the currently logged-in user from localStorage.
+  // If no user exists, use "anonymous".
+  const activeUser =
+    localStorage.getItem('audit_active_user') || 'anonymous';
+
+
+  // Store the available assessment categories.
   const [categories] = useState<string[]>([
     'C# .NET Core',
     'React JS Essentials',
@@ -17,433 +51,1385 @@ const AssessmentPage: React.FC = () => {
     'Data Structures & Algorithms'
   ]);
 
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [questions, setQuestions] = useState<Question[]>([]);
-  const [activeQuestionIdx, setActiveQuestionIdx] = useState<number>(0);
-  const [answers, setAnswers] = useState<Record<string, number>>({});
-  const [history, setHistory] = useState<Assessment[]>([]);
-  
-  const [isLoadingQuestions, setIsLoadingQuestions] = useState(false);
-  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [quizActive, setQuizActive] = useState(false);
-  const [scorecard, setScorecard] = useState<Assessment | null>(null);
-  
-  // Proctoring States
-  const [warningsCount, setWarningsCount] = useState<number>(0);
-  const [warningsLog, setWarningsLog] = useState<string[]>([]);
-  const [expandedAttemptId, setExpandedAttemptId] = useState<string | null>(null);
 
-  // AI Interview Question Timer (1 minute per question)
-  const [questionSecondsLeft, setQuestionSecondsLeft] = useState<number>(60);
-  
-  // Permission Flow State
-  const [permissionState, setPermissionState] = useState<'idle' | 'requesting' | 'granted' | 'denied'>('idle');
+  // Store the category currently selected by the user.
+  // null means that no assessment has been selected yet.
+  const [selectedCategory, setSelectedCategory] =
+    useState<string | null>(null);
 
-  // Webcam Streams & Recorder Refs
-  const videoPreviewRef = useRef<HTMLVideoElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  // Hidden Canvas for Auto-proctoring scan
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const prevFrameDataRef = useRef<Uint8ClampedArray | null>(null);
-  const staticFrameCountRef = useRef<number>(0);
 
-  const activeSessionId = localStorage.getItem('audit_session_id') || crypto.randomUUID();
+  // Store all questions loaded for the selected assessment.
+  const [questions, setQuestions] =
+    useState<Question[]>([]);
 
+
+  // Store the index of the question currently displayed.
+  // 0 means the first question.
+  const [activeQuestionIdx, setActiveQuestionIdx] =
+    useState<number>(0);
+
+
+  // Store the user's answers.
+  // The key is the question ID and the value is the selected option index.
+  const [answers, setAnswers] =
+    useState<Record<string, number>>({});
+
+
+  // Store the user's previous assessment attempts.
+  const [history, setHistory] =
+    useState<Assessment[]>([]);
+
+
+  // Control whether assessment history is visible.
+  const [showHistory, setShowHistory] =
+    useState(false);
+
+
+  // Track whether questions are currently being loaded.
+  const [isLoadingQuestions, setIsLoadingQuestions] =
+    useState(false);
+
+
+  // Track whether assessment history is currently being loaded.
+  const [isLoadingHistory, setIsLoadingHistory] =
+    useState(false);
+
+
+  // Track whether assessment submission is currently happening.
+  const [isSubmitting, setIsSubmitting] =
+    useState(false);
+
+
+  // Indicates whether an assessment is currently active.
+  const [quizActive, setQuizActive] =
+    useState(false);
+
+
+  // Store the result/scorecard after submission.
+  // null means that no result is available yet.
+  const [scorecard, setScorecard] =
+    useState<Assessment | null>(null);
+
+
+  // useRef stores a mutable value that does not cause a React re-render.
+  // This flag prevents the same assessment from being submitted multiple times.
+  const submissionStartedRef =
+    useRef(false);
+
+
+  // ---------------- PROCTORING STATES ----------------
+
+  // Store the total number of proctoring warnings.
+  const [warningsCount, setWarningsCount] =
+    useState<number>(0);
+
+
+  // Store the textual details of every warning.
+  const [warningsLog, setWarningsLog] =
+    useState<string[]>([]);
+
+
+  // Store the ID of the assessment attempt whose warning details are expanded.
+  const [expandedAttemptId, setExpandedAttemptId] =
+    useState<string | null>(null);
+
+
+  // ---------------- QUESTION TIMER ----------------
+
+  // Store the number of seconds remaining for the current question.
+  // Each question starts with 60 seconds.
+  const [questionSecondsLeft, setQuestionSecondsLeft] =
+    useState<number>(60);
+
+
+  // ---------------- PERMISSION STATE ----------------
+
+  // Track the current camera/microphone permission state.
+  const [permissionState, setPermissionState] =
+    useState<'idle' | 'requesting' | 'granted' | 'denied'>('idle');
+
+
+  // ---------------- AUTO-SUBMIT TIMER LOCK ----------------
+
+  // Prevent the timer from triggering the same action multiple times.
+  const timerLockRef = useRef(false);
+
+
+  // ---------------- WEBCAM REFERENCES ----------------
+
+  // Reference to the HTML video element that displays the webcam feed.
+  const videoPreviewRef =
+    useRef<HTMLVideoElement | null>(null);
+
+
+  // Store the actual webcam and microphone MediaStream.
+  const streamRef =
+    useRef<MediaStream | null>(null);
+
+
+  // Store the MediaRecorder instance used to record the webcam stream.
+  const mediaRecorderRef =
+    useRef<MediaRecorder | null>(null);
+
+
+  // Store video data chunks produced by MediaRecorder.
+  const chunksRef =
+    useRef<Blob[]>([]);
+
+
+  // ---------------- COMPUTER VISION REFERENCES ----------------
+
+  // Reference to a hidden HTML canvas used to analyze webcam frames.
+  const canvasRef =
+    useRef<HTMLCanvasElement | null>(null);
+
+
+  // Store the previous webcam frame for pixel comparison.
+  const prevFrameDataRef =
+    useRef<Uint8ClampedArray | null>(null);
+
+
+  // Count consecutive frames where almost no visual change is detected.
+  const staticFrameCountRef =
+    useRef<number>(0);
+
+
+  // Store the timestamp when the assessment started.
+  const testStartTimeRef =
+    useRef<number>(Date.now());
+
+
+  // Get the existing audit session ID from localStorage.
+  // If none exists, generate a new UUID.
+  const activeSessionId =
+    localStorage.getItem('audit_session_id') ||
+    crypto.randomUUID();
+
+
+  // Create common headers used when communicating with the backend.
   const getHeaders = () => ({
+    // Tell the backend that the request body is JSON.
     'Content-Type': 'application/json',
+
+    // Send the audit session ID so backend logs can be connected.
     'X-Session-ID': activeSessionId,
+
+    // Send the current user ID.
     'X-User-ID': activeUser,
   });
 
-  // Fetch assessment history
+
+  // ---------------- PAGE VIEW LOGGING ----------------
+
+  // Run this effect when the AssessmentPage component is mounted.
+  useEffect(() => {
+
+    // Send an audit event indicating that the assessment page was opened.
+    fetch(`${API_BASE_URL}/assessment/log-view`, {
+      // Use POST because we are creating an audit event.
+      method: 'POST',
+
+      // Attach the common audit headers.
+      headers: getHeaders()
+
+    // Log an error if the audit request fails.
+    }).catch(err =>
+      console.error('Failed to log page view:', err)
+    );
+
+  // Empty dependency array means this runs once when the component mounts.
+  }, []);
+
+
+  // ---------------- FETCH ASSESSMENT HISTORY ----------------
+
+  // Function used to retrieve the user's previous assessment attempts.
   const fetchHistory = async () => {
+
+    // Show the history loading state.
     setIsLoadingHistory(true);
+
     try {
-      const response = await fetch(`${API_BASE_URL}/assessment/history/${activeUser}`, {
-        headers: getHeaders()
-      });
+
+      // Request assessment history for the active user.
+      const response = await fetch(
+        `${API_BASE_URL}/assessment/history/${activeUser}`,
+        {
+          // Attach the common headers.
+          headers: getHeaders()
+        }
+      );
+
+
+      // Continue only when the server returned a successful response.
       if (response.ok) {
+
+        // Convert the JSON response into JavaScript data.
         const data = await response.json();
+
+        // Store the history in React state.
         setHistory(data);
       }
+
     } catch (err) {
-      console.error('Failed to load assessment history:', err);
+
+      // Handle network/request errors.
+      console.error(
+        'Failed to load assessment history:',
+        err
+      );
+
     } finally {
+
+      // Stop showing the loading indicator.
       setIsLoadingHistory(false);
     }
   };
 
-  useEffect(() => {
-    fetchHistory();
-  }, []);
 
-  // Per-Question 1-Minute Timer Loop
+  // Toggle the assessment history section.
+  const toggleHistory = () => {
+
+    // If history is currently hidden, load the latest history first.
+    if (!showHistory) {
+      fetchHistory();
+    }
+
+    // Change the visibility state.
+    setShowHistory(!showHistory);
+  };
+
+
+  // ---------------- PER-QUESTION TIMER ----------------
+
+  // Run this effect whenever quiz state or remaining seconds changes.
   useEffect(() => {
+
+    // If the timer has been reset to a positive value,
+    // release the auto-submit/navigation lock.
+    if (questionSecondsLeft > 0) {
+      timerLockRef.current = false;
+    }
+
+
+    // If the quiz is not active OR the timer has reached zero,
+    // do not create another interval.
     if (!quizActive || questionSecondsLeft <= 0) {
-      if (quizActive && questionSecondsLeft === 0) {
-        // Auto submit current question or final quiz
+
+      // Check that the timer reached exactly zero
+      // and the action has not already been triggered.
+      if (
+        quizActive &&
+        questionSecondsLeft === 0 &&
+        !timerLockRef.current
+      ) {
+
+        // Lock immediately to prevent duplicate execution.
+        timerLockRef.current = true;
+
+        // Automatically move to the next question
+        // or submit the assessment if this is the last question.
         handleNextQuestionAuto();
       }
+
+      // Stop execution of this effect.
       return;
     }
+
+
+    // Create an interval that runs every 1 second.
     const timer = setInterval(() => {
+
+      // Decrease the remaining time by one second.
       setQuestionSecondsLeft(prev => prev - 1);
+
     }, 1000);
+
+
+    // Clean up the interval when the effect runs again
+    // or the component is unmounted.
     return () => clearInterval(timer);
+
+  // Re-run the effect when either value changes.
   }, [quizActive, questionSecondsLeft]);
 
-  // Tab switching focus proctoring listeners
+
+  // ---------------- TAB SWITCHING PROCTORING ----------------
+
+  // Register browser focus/visibility listeners while the quiz is active.
   useEffect(() => {
+
+    // If no quiz is running, there is nothing to monitor.
     if (!quizActive) return;
 
+
+    // Called when the browser window loses focus.
     const handleBlur = () => {
-      addWarning("Window focus lost (tab/window switch detected).");
+
+      // Add a warning because the user may have switched windows/tabs.
+      addWarning(
+        "Window focus lost (tab/window switch detected)."
+      );
     };
 
+
+    // Called whenever document visibility changes.
     const handleVisibility = () => {
+
+      // Check whether the current page has become hidden.
       if (document.visibilityState === 'hidden') {
+
+        // Record a tab-switch warning.
         addWarning("Document tab switch detected.");
       }
     };
 
-    window.addEventListener('blur', handleBlur);
-    document.addEventListener('visibilitychange', handleVisibility);
 
+    // Listen for browser window focus loss.
+    window.addEventListener('blur', handleBlur);
+
+
+    // Listen for page visibility changes.
+    document.addEventListener(
+      'visibilitychange',
+      handleVisibility
+    );
+
+
+    // Remove both listeners when the quiz ends
+    // or when the effect is cleaned up.
     return () => {
+
+      // Remove the blur listener.
       window.removeEventListener('blur', handleBlur);
-      document.removeEventListener('visibilitychange', handleVisibility);
+
+      // Remove the visibility listener.
+      document.removeEventListener(
+        'visibilitychange',
+        handleVisibility
+      );
     };
+
+  // Re-register listeners when quizActive changes.
   }, [quizActive]);
 
-  // Hidden canvas automatic computer-vision proctor scan loop (runs every 3 seconds)
+
+  // ---------------- AUTOMATIC COMPUTER-VISION SCAN ----------------
+
+  // Start/stop the automatic webcam analysis depending on quiz state.
   useEffect(() => {
+
+    // Do nothing when the quiz is not active.
     if (!quizActive) return;
 
+
+    // Run the proctoring scan every 3 seconds.
     const interval = setInterval(() => {
+
+      // Analyze the current webcam frame.
       runProctorScan();
+
     }, 3000);
 
+
+    // Stop the interval when the quiz ends
+    // or when the effect is recreated.
     return () => clearInterval(interval);
+
+  // Re-run when quizActive or warning count changes.
   }, [quizActive, warningsCount]);
 
-  // Auto-proctoring scan method
+
+  // ---------------- COMPUTER-VISION PROCTORING ----------------
+
+  // Analyze the current webcam frame to detect suspicious conditions.
   const runProctorScan = () => {
-    if (!videoPreviewRef.current || !canvasRef.current) return;
+
+    // If either the video element or canvas is unavailable,
+    // there is nothing to analyze.
+    if (
+      !videoPreviewRef.current ||
+      !canvasRef.current
+    ) return;
+
+
+    // Get the HTML video element.
     const video = videoPreviewRef.current;
+
+
+    // Get the hidden canvas element.
     const canvas = canvasRef.current;
-    
-    // Check if the stream is active and holds valid resolutions
-    if (video.videoWidth === 0 || video.videoHeight === 0) return;
-    
+
+
+    // Check whether the webcam has a valid video resolution.
+    // A width or height of zero means the video is not ready.
+    if (
+      video.videoWidth === 0 ||
+      video.videoHeight === 0
+    ) return;
+
+
+    // Get the 2D drawing context from the canvas.
     const ctx = canvas.getContext('2d');
+
+
+    // If the canvas context could not be created, stop processing.
     if (!ctx) return;
 
-    // Draw current frame into hidden canvas
+
+    // Resize the hidden canvas to a small resolution.
+    // This reduces the amount of data that needs to be analyzed.
     canvas.width = 160;
     canvas.height = 120;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    
+
+
+    // Copy the current webcam frame into the hidden canvas.
+    ctx.drawImage(
+      video,
+      0,
+      0,
+      canvas.width,
+      canvas.height
+    );
+
+
     try {
-      const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+      // Extract the pixel data from the current frame.
+      const frame = ctx.getImageData(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+      );
+
+
+      // Get the RGBA pixel array.
       const data = frame.data;
 
-      // 1. Brightness check (checks if the lens is covered or user leaves a dark room)
+
+      // Store the total brightness of all pixels.
       let totalBrightness = 0;
+
+
+      // Iterate through the pixels.
+      // Every pixel contains 4 values: R, G, B and Alpha.
       for (let i = 0; i < data.length; i += 4) {
+
+        // Read the red channel.
         const r = data[i];
+
+        // Read the green channel.
         const g = data[i + 1];
+
+        // Read the blue channel.
         const b = data[i + 2];
+
+
+        // Calculate approximate brightness for this pixel
+        // and add it to the total.
         totalBrightness += (r + g + b) / 3;
       }
-      const avgBrightness = totalBrightness / (data.length / 4);
 
+
+      // Calculate the average brightness of the complete frame.
+      const avgBrightness =
+        totalBrightness / (data.length / 4);
+
+
+      // Check whether the camera image is extremely dark.
       if (avgBrightness < 10) {
-        addWarning("Webcam feed blocked or user left frame (Camera feed is too dark).");
+
+        // Add a warning because the camera may be blocked
+        // or the environment may be too dark.
+        addWarning(
+          "Webcam feed blocked or user left frame (Camera feed is too dark)."
+        );
+
+        // Stop processing this frame.
         return;
       }
 
-      // 2. Pixel difference check (checks for absence or static frozen feeds)
+
+      // ---------------- STATIC FRAME DETECTION ----------------
+
+      // Only compare frames if a previous frame exists.
       if (prevFrameDataRef.current) {
+
+        // Count how many pixels changed significantly.
         let diffPixels = 0;
+
+
+        // Get the previous frame's pixel data.
         const prev = prevFrameDataRef.current;
+
+
+        // Compare the current frame with the previous frame.
         for (let i = 0; i < data.length; i += 4) {
-          const diff = Math.abs(data[i] - prev[i]) + 
-                       Math.abs(data[i + 1] - prev[i + 1]) + 
-                       Math.abs(data[i + 2] - prev[i + 2]);
-          if (diff > 80) { // threshold for change
+
+          // Calculate the total RGB difference.
+          const diff =
+            Math.abs(data[i] - prev[i]) +
+            Math.abs(data[i + 1] - prev[i + 1]) +
+            Math.abs(data[i + 2] - prev[i + 2]);
+
+
+          // Consider this pixel changed if the difference is greater than 80.
+          if (diff > 80) {
+
+            // Increase the changed-pixel count.
             diffPixels++;
           }
         }
 
-        const diffPercentage = (diffPixels / (data.length / 4)) * 100;
 
-        // If the camera feed has no changes at all (< 0.1% change) for multiple cycles (12+ seconds),
-        // it means the candidate is absent or has set a static frozen overlay
+        // Calculate what percentage of pixels changed.
+        const diffPercentage =
+          (diffPixels / (data.length / 4)) * 100;
+
+
+        // If less than 0.1% of pixels changed,
+        // consider the frame almost static.
         if (diffPercentage < 0.1) {
+
+          // Increase the consecutive static-frame counter.
           staticFrameCountRef.current += 1;
+
+
+          // Four consecutive scans occur approximately every 3 seconds,
+          // so four static scans represent roughly 12 seconds.
           if (staticFrameCountRef.current >= 4) {
-            addWarning("User absence or frozen feed detected.");
+
+            // Add a warning for possible user absence/frozen video.
+            addWarning(
+              "User absence or frozen feed detected."
+            );
+
+
+            // Reset the counter after creating the warning.
             staticFrameCountRef.current = 0;
           }
+
         } else {
+
+          // If movement is detected, reset the static-frame counter.
           staticFrameCountRef.current = 0;
         }
       }
 
+
+      // Save the current frame as the previous frame
+      // for comparison during the next scan.
       prevFrameDataRef.current = data;
+
     } catch (e) {
-      console.warn('Proctor canvas analyzer context blocked.', e);
+
+      // Handle errors when accessing/analyzing canvas pixel data.
+      console.warn(
+        'Proctor canvas analyzer context blocked.',
+        e
+      );
     }
   };
 
-  // Method to log infractions, trigger real-time Event 2 logging, and auto-submit at 3 violations
+
+  // ---------------- ADD PROCTORING WARNING ----------------
+
+  // Add a warning, log it to the backend,
+  // and automatically submit after 3 warnings.
   const addWarning = (reason: string) => {
-    const timestamp = new Date().toLocaleTimeString();
-    const detail = `[${timestamp}] ${reason}`;
-    
-    // Map reason text to WarningType keyword for Event 2 proctoring warning
+
+    // Get the current local time for displaying the warning.
+    const timestamp =
+      new Date().toLocaleTimeString();
+
+
+    // Combine the timestamp and reason into one readable log entry.
+    const detail =
+      `[${timestamp}] ${reason}`;
+
+
+    // Default warning type.
     let warningType = 'LookingAway';
-    if (reason.toLowerCase().includes('switch') || reason.toLowerCase().includes('focus')) {
+
+
+    // If the reason contains "switch" or "focus",
+    // classify it as a window-switch warning.
+    if (
+      reason.toLowerCase().includes('switch') ||
+      reason.toLowerCase().includes('focus')
+    ) {
+
+      // Set the warning type.
       warningType = 'WindowSwitch';
-    } else if (reason.toLowerCase().includes('blocked') || reason.toLowerCase().includes('dark')) {
+
+    // If the reason indicates a blocked/dark camera,
+    // classify it as a camera warning.
+    } else if (
+      reason.toLowerCase().includes('blocked') ||
+      reason.toLowerCase().includes('dark')
+    ) {
+
+      // Set the warning type.
       warningType = 'CameraBlocked';
-    } else if (reason.toLowerCase().includes('absence') || reason.toLowerCase().includes('frozen')) {
+
+    // If the reason indicates absence/frozen feed,
+    // classify it as a user-absence warning.
+    } else if (
+      reason.toLowerCase().includes('absence') ||
+      reason.toLowerCase().includes('frozen')
+    ) {
+
+      // Set the warning type.
       warningType = 'UserAbsent';
     }
 
-    // Compute active recording video timestamp offset (e.g. 00:02:15)
-    const elapsedSeconds = (activeQuestionIdx * 60) + (60 - questionSecondsLeft);
-    const minutes = Math.floor(elapsedSeconds / 60);
-    const secs = elapsedSeconds % 60;
-    const videoTimestamp = `00:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 
-    // Fire Event 2: Real-time Proctoring Warning (lightweight, non-blocking API call)
-    fetch(`${API_BASE_URL}/assessment/log-warning`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({
-        warningType,
-        videoTimestamp
-      })
-    }).catch(err => console.error("Failed to log proctor warning audit log:", err));
+    // Calculate how many seconds have passed since the assessment started.
+    // Date.now() is used so this does not depend on React state closures.
+    const elapsedSeconds =
+      Math.floor(
+        (Date.now() - testStartTimeRef.current) / 1000
+      );
 
+
+    // Convert elapsed seconds into minutes.
+    const minutes =
+      Math.floor(elapsedSeconds / 60);
+
+
+    // Get the remaining seconds after extracting minutes.
+    const secs =
+      elapsedSeconds % 60;
+
+
+    // Convert the elapsed time into HH:MM:SS-style video timestamp.
+    const videoTimestamp =
+      `00:${minutes.toString().padStart(2, '0')}:${secs
+        .toString()
+        .padStart(2, '0')}`;
+
+
+    // Send the proctoring warning to the backend.
+    // This request is intentionally non-blocking.
+    fetch(
+      `${API_BASE_URL}/assessment/log-warning`,
+      {
+        // Use POST because a new audit event is being created.
+        method: 'POST',
+
+        // Attach session/user information.
+        headers: getHeaders(),
+
+        // Send the warning type and timestamp as JSON.
+        body: JSON.stringify({
+          warningType,
+          videoTimestamp
+        })
+      }
+
+    // Log an error if the warning audit request fails.
+    ).catch(err =>
+      console.error(
+        "Failed to log proctor warning audit log:",
+        err
+      )
+    );
+
+
+    // Add the warning to the React warning log.
     setWarningsLog(prev => {
-      const nextLog = [...prev, detail];
+
+      // Create a new array containing the old warnings
+      // plus the new warning.
+      const nextLog = [
+        ...prev,
+        detail
+      ];
+
+
+      // Update the total warning count.
       setWarningsCount(curr => {
+
+        // Calculate the new warning count.
         const nextCount = curr + 1;
-        if (nextCount >= 3) {
-          alert("Maximum proctoring warnings exceeded (3/3). Your exam is being submitted immediately.");
-          handleSubmitQuiz(nextCount, nextLog);
+
+
+        // If warning count reaches 3,
+        // automatically submit the assessment.
+        if (
+          nextCount >= 3 &&
+          !submissionStartedRef.current
+        ) {
+
+          // Inform the user that the exam will be submitted.
+          alert(
+            "Maximum proctoring warnings exceeded (3/3). Your exam is being submitted immediately."
+          );
+
+
+          // Submit using the latest warning count and log.
+          // These values avoid relying on possibly stale React state.
+          handleSubmitQuiz(
+            nextCount,
+            nextLog
+          );
         }
+
+
+        // Return the updated warning count.
         return nextCount;
       });
+
+
+      // Return the updated warning log.
       return nextLog;
     });
   };
 
-  // Trigger permission check (Event 1 logging) before starting the test
+
+  // ---------------- PERMISSION CHECK ----------------
+
+  // Request camera and microphone permission before starting the assessment.
   const handleInitiateQuiz = (category: string) => {
+
+    // Tell the UI that permission is currently being requested.
     setPermissionState('requesting');
 
-    // Request Mic and Camera permissions
-    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+
+    // Request access to both webcam and microphone.
+    navigator.mediaDevices
+      .getUserMedia({
+        video: true,
+        audio: true
+      })
+
+      // Execute this block when permission is successfully granted.
       .then((stream) => {
-        // Stop the temporary stream tracks immediately
-        stream.getTracks().forEach(t => t.stop());
+
+        // Stop the temporary stream immediately.
+        // It was only used to verify permission.
+        stream.getTracks().forEach(
+          t => t.stop()
+        );
+
+
+        // Update the UI to indicate that permission was granted.
         setPermissionState('granted');
 
-        // Fire Event 1: Setup and Permissions (Accepted)
-        fetch(`${API_BASE_URL}/assessment/log-permissions`, {
-          method: 'POST',
-          headers: getHeaders(),
-          body: JSON.stringify({
-            granted: true,
-            cameraGranted: true,
-            microphoneGranted: true
-          })
-        }).catch(e => console.error(e));
 
+        // Log the successful permission event.
+        fetch(
+          `${API_BASE_URL}/assessment/log-permissions`,
+          {
+            // Create a new permission audit event.
+            method: 'POST',
+
+            // Attach audit headers.
+            headers: getHeaders(),
+
+            // Tell backend that camera and microphone were granted.
+            body: JSON.stringify({
+              granted: true,
+              cameraGranted: true,
+              microphoneGranted: true
+            })
+          }
+
+        // Permission logging should not block starting the quiz.
+        ).catch(e => console.error(e));
+
+
+        // After permission is granted, actually load the quiz.
         executeStartQuiz(category);
       })
+
+
+      // Execute this block if permission request fails.
       .catch((err) => {
-        console.warn('Permissions denied', err);
+
+        // Log the browser error for debugging.
+        console.warn(
+          'Permissions denied',
+          err
+        );
+
+
+        // Update the UI to show permission was denied.
         setPermissionState('denied');
 
-        // Fire Event 1: Setup and Permissions (Denied)
-        fetch(`${API_BASE_URL}/assessment/log-permissions`, {
-          method: 'POST',
-          headers: getHeaders(),
-          body: JSON.stringify({
-            granted: false,
-            cameraGranted: false,
-            microphoneGranted: false
-          })
-        }).catch(e => console.error(e));
+
+        // Log the failed permission event.
+        fetch(
+          `${API_BASE_URL}/assessment/log-permissions`,
+          {
+            // Create a new permission audit event.
+            method: 'POST',
+
+            // Attach audit headers.
+            headers: getHeaders(),
+
+            // Tell backend that permission was not granted.
+            body: JSON.stringify({
+              granted: false,
+              cameraGranted: false,
+              microphoneGranted: false
+            })
+          }
+
+        // Do not block the UI if audit logging fails.
+        ).catch(e => console.error(e));
       });
   };
 
-  // Load questions and start quiz
+
+  // ---------------- START QUIZ ----------------
+
+  // Load questions and initialize all assessment-related resources.
   const executeStartQuiz = async (category: string) => {
+
+    // Reset duplicate-submission protection for this new attempt.
+    submissionStartedRef.current = false;
+
+
+    // Display the question-loading state.
     setIsLoadingQuestions(true);
+
+
     try {
-      const response = await fetch(`${API_BASE_URL}/assessment/questions/${encodeURIComponent(category)}`, {
-        headers: getHeaders()
-      });
+
+      // Request questions for the selected category.
+      // encodeURIComponent safely encodes spaces/special characters in the URL.
+      const response = await fetch(
+        `${API_BASE_URL}/assessment/questions/${encodeURIComponent(category)}`,
+        {
+          // Attach common headers.
+          headers: getHeaders()
+        }
+      );
+
+
+      // Continue only if the backend returned a successful response.
       if (response.ok) {
+
+        // Convert the response body from JSON into JavaScript data.
         const data = await response.json();
+
+
+        // Store the downloaded questions.
         setQuestions(data);
+
+
+        // Remove answers from any previous attempt.
         setAnswers({});
+
+
+        // Start from the first question.
         setActiveQuestionIdx(0);
+
+
+        // Store the selected category.
         setSelectedCategory(category);
-        
-        // Reset states
-        setQuestionSecondsLeft(60); // 1 minute per question
+
+
+        // ---------------- RESET ASSESSMENT STATE ----------------
+
+        // Reset the timer to 60 seconds for the first question.
+        setQuestionSecondsLeft(60);
+
+
+        // Reset the proctoring warning count.
         setWarningsCount(0);
+
+
+        // Clear warnings from any previous assessment.
         setWarningsLog([]);
+
+
+        // Mark the quiz as active.
         setQuizActive(true);
+
+
+        // Clear any previous scorecard.
         setScorecard(null);
 
-        // Turn on Webcam stream for CV proctoring (no recording)
+
+        // ---------------- START WEBCAM ----------------
+
+        // Wait approximately 200ms before initializing the webcam.
+        // This gives React time to render the video element.
         setTimeout(async () => {
+
           try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+
+            // Request the actual webcam and microphone stream.
+            const stream =
+              await navigator.mediaDevices.getUserMedia({
+                video: true,
+                audio: true
+              });
+
+
+            // Store the stream so it can be stopped later.
             streamRef.current = stream;
+
+
+            // If the video element exists, display the webcam stream.
             if (videoPreviewRef.current) {
-              videoPreviewRef.current.srcObject = stream;
+
+              // Connect the MediaStream to the <video> element.
+              videoPreviewRef.current.srcObject =
+                stream;
             }
-            // --- ADD THIS RECORDING LOGIC ---
-            const recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+
+
+            // Create a MediaRecorder for the webcam stream.
+            // The recorded format is WebM.
+            const recorder =
+              new MediaRecorder(
+                stream,
+                {
+                  mimeType: 'video/webm'
+                }
+              );
+
+
+            // Store the recorder for later stopping/submission.
             mediaRecorderRef.current = recorder;
+
+
+            // Remove video chunks from any previous assessment.
             chunksRef.current = [];
-            
+
+
+            // Called whenever MediaRecorder produces video data.
             recorder.ondataavailable = (e) => {
-              if (e.data && e.data.size > 0) {
+
+              // Only store non-empty data chunks.
+              if (
+                e.data &&
+                e.data.size > 0
+              ) {
+
+                // Add the chunk to the recording buffer.
                 chunksRef.current.push(e.data);
               }
             };
-            
+
+
+            // Start recording.
+            // 1000 means request data roughly every 1 second.
             recorder.start(1000);
+
           } catch (err) {
-            console.warn('Webcam feed could not be initialized.', err);
+
+            // Log webcam initialization errors.
+            console.warn(
+              'Webcam feed could not be initialized.',
+              err
+            );
           }
+
         }, 200);
       }
+
     } catch (err) {
-      console.error('Failed to fetch questions:', err);
+
+      // Handle network/request errors while loading questions.
+      console.error(
+        'Failed to fetch questions:',
+        err
+      );
+
     } finally {
+
+      // Stop showing the question-loading state.
       setIsLoadingQuestions(false);
+
+
+      // Return permission UI state to idle.
       setPermissionState('idle');
     }
   };
 
-  const handleSelectOption = (questionId: string, optionIdx: number) => {
-    setAnswers(prev => ({ ...prev, [questionId]: optionIdx }));
+
+  // ---------------- SELECT ANSWER ----------------
+
+  // Store the selected option for a particular question.
+  const handleSelectOption = (
+    questionId: string,
+    optionIdx: number
+  ) => {
+
+    // Update only the selected question's answer.
+    // Previous answers are preserved using the spread operator.
+    setAnswers(prev => ({
+      ...prev,
+      [questionId]: optionIdx
+    }));
   };
 
-  // Navigates to next question manually (re-init 1-minute countdown)
+
+  // ---------------- MANUAL NEXT QUESTION ----------------
+
+  // Move to the next question when the user clicks Next.
   const handleNextManual = () => {
-    if (activeQuestionIdx < questions.length - 1) {
-      setActiveQuestionIdx(prev => prev + 1);
+
+    // Check whether there is another question after the current one.
+    if (
+      activeQuestionIdx <
+      questions.length - 1
+    ) {
+
+      // Increase the question index by one.
+      setActiveQuestionIdx(
+        prev => prev + 1
+      );
+
+
+      // Reset the timer for the new question.
       setQuestionSecondsLeft(60);
     }
   };
 
+
+  // ---------------- PREVIOUS QUESTION ----------------
+
+  // Move to the previous question.
   const handlePrev = () => {
+
+    // Make sure we are not already on the first question.
     if (activeQuestionIdx > 0) {
-      setActiveQuestionIdx(prev => prev - 1);
+
+      // Decrease the question index by one.
+      setActiveQuestionIdx(
+        prev => prev - 1
+      );
+
+
+      // Reset the timer for the previous question.
       setQuestionSecondsLeft(60);
     }
   };
 
-  // Auto-navigates on 1-minute timer run-out
+
+  // ---------------- AUTOMATIC NEXT QUESTION ----------------
+
+  // Called automatically when the current question's timer reaches zero.
   const handleNextQuestionAuto = () => {
-    addWarning(`Timer ran out for question ${activeQuestionIdx + 1} (Auto-advancing).`);
-    
-    if (activeQuestionIdx < questions.length - 1) {
-      setActiveQuestionIdx(prev => prev + 1);
-      setQuestionSecondsLeft(60);
-    } else {
-      // Last question completed, submit entire assessment
+
+    // Determine whether the current question is the final question.
+    const isLastQuestion =
+      activeQuestionIdx === questions.length - 1;
+
+
+    // If this is the final question, submit the assessment.
+    if (isLastQuestion) {
+
+      // Print a debugging message.
+      console.log(
+        "times up auto submiting the assesment"
+      );
+
+
+      // Submit the entire assessment.
       handleSubmitQuiz();
+
+    } else {
+
+      // Print a debugging message.
+      console.log(
+        "times up moving to next question"
+      );
+
+
+      // Move to the next question.
+      setActiveQuestionIdx(
+        prev => prev + 1
+      );
+
+
+      // Reset the timer to 60 seconds.
+      setQuestionSecondsLeft(60);
     }
   };
 
-  // Handles Event 3: Submission
- const handleSubmitQuiz = async (overrideWarningsCount?: number, overrideWarningsLog?: string[]) => {
+
+  // ---------------- SUBMIT ASSESSMENT ----------------
+
+  // Submit the assessment and optionally receive the latest warning values.
+  const handleSubmitQuiz = async (
+    overrideWarningsCount?: number,
+    overrideWarningsLog?: string[]
+  ) => {
+
+    // Do not submit if no category has been selected.
     if (!selectedCategory) return;
+
+
+    // Prevent multiple submission requests.
+    if (submissionStartedRef.current) {
+
+      // Log that submission was already initiated.
+      console.log(
+        "Submission already started. Ignoring duplicate submit."
+      );
+
+
+      // Stop here.
+      return;
+    }
+
+
+    // Lock submission immediately.
+    submissionStartedRef.current = true;
+
+
+    // Stop the quiz UI.
     setQuizActive(false);
+
+
+    // Display submission/loading state.
     setIsSubmitting(true);
 
-    // 1. Stop Webcam stream tracks
+
+    // ---------------- STOP WEBCAM ----------------
+
+    // Check whether a webcam stream exists.
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop());
+
+      // Stop every track in the webcam/microphone stream.
+      streamRef.current
+        .getTracks()
+        .forEach(t => t.stop());
     }
 
-    // 2. Safely compile the recorded video into a Blob
+
+    // ---------------- COMPILE RECORDED VIDEO ----------------
+
+    // Initially there is no video to upload.
     let videoBlob: Blob | null = null;
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+
+
+    // Check whether a recorder exists
+    // and is currently recording.
+    if (
+      mediaRecorderRef.current &&
+      mediaRecorderRef.current.state !== 'inactive'
+    ) {
+
       try {
-        const stopPromise = new Promise<Blob>((resolve) => {
-          mediaRecorderRef.current!.onstop = () => {
-            resolve(new Blob(chunksRef.current, { type: 'video/webm' }));
-          };
-        });
+
+        // Create a Promise that will resolve when recording stops.
+        const stopPromise =
+          new Promise<Blob>((resolve) => {
+
+            // onstop runs after MediaRecorder finishes stopping.
+            mediaRecorderRef.current!.onstop =
+              () => {
+
+                // Combine all recorded chunks into one Blob.
+                resolve(
+                  new Blob(
+                    chunksRef.current,
+                    {
+                      type: 'video/webm'
+                    }
+                  )
+                );
+              };
+          });
+
+
+        // Stop the recorder.
         mediaRecorderRef.current.stop();
-        videoBlob = await stopPromise;
+
+
+        // Wait until the final Blob has been created.
+        videoBlob =
+          await stopPromise;
+
       } catch (err) {
-        console.warn('Failed to compile video recording blob:', err);
+
+        // Log recording/Blob creation errors.
+        console.warn(
+          'Failed to compile video recording blob:',
+          err
+        );
       }
     }
 
-    const finalWarningsCount = overrideWarningsCount !== undefined ? overrideWarningsCount : warningsCount;
-    const finalWarningsLog = overrideWarningsLog !== undefined ? overrideWarningsLog : warningsLog;
 
-    // 3. Create the FormData object (This fixes the red line)
+    // ---------------- FINAL WARNING VALUES ----------------
+
+    // Use the explicitly supplied warning count if available.
+    // Otherwise use the current React state.
+    const finalWarningsCount =
+      overrideWarningsCount !== undefined
+        ? overrideWarningsCount
+        : warningsCount;
+
+
+    // Use the explicitly supplied warning log if available.
+    // Otherwise use the current React state.
+    const finalWarningsLog =
+      overrideWarningsLog !== undefined
+        ? overrideWarningsLog
+        : warningsLog;
+
+
+    // Create a multipart/form-data request body.
+    // This allows us to send both normal fields and the video file.
     const formData = new FormData();
-    formData.append('username', activeUser);
-    formData.append('quizCategory', selectedCategory);
-    formData.append('answersJson', JSON.stringify(answers));
-    formData.append('warningsCount', String(finalWarningsCount));
-    formData.append('warningsLogJson', JSON.stringify(finalWarningsLog));
-    
-    // Attach the video file if it was successfully recorded
+
+
+    // Add the username to the multipart request.
+    formData.append(
+      'username',
+      activeUser
+    );
+
+
+    // Add the selected quiz category.
+    formData.append(
+      'quizCategory',
+      selectedCategory
+    );
+
+
+    // Convert the answers object into JSON text.
+    formData.append(
+      'answersJson',
+      JSON.stringify(answers)
+    );
+
+
+    // Add the final warning count.
+    formData.append(
+      'warningsCount',
+      String(finalWarningsCount)
+    );
+
+
+    // Convert the warning array into JSON text.
+    formData.append(
+      'warningsLogJson',
+      JSON.stringify(finalWarningsLog)
+    );
+
+
+    // Upload the recorded video only when recording succeeded.
     if (videoBlob) {
-      formData.append('videoFile', videoBlob, `${activeUser}-proctor.webm`);
+
+      // Add the Blob as the videoFile field.
+      formData.append(
+        'videoFile',
+        videoBlob,
+        `${activeUser}-proctor.webm`
+      );
     }
 
-    // 4. Send the data to the API
-    try {
-      const response = await fetch(`${API_BASE_URL}/assessment/submit`, {
-        method: 'POST',
-        headers: {
-          'X-Session-ID': localStorage.getItem('audit_session_id') || 'sess_' + activeUser,
-          'X-User-ID': activeUser
-          // Notice there is NO 'Content-Type' here. The browser handles it automatically for FormData.
-        },
-        body: formData
-      });
 
+    // ---------------- SEND SUBMISSION TO BACKEND ----------------
+
+    try {
+
+      // Send the completed assessment to the backend.
+      const response = await fetch(
+        `${API_BASE_URL}/assessment/submit`,
+        {
+
+          // Use POST because we are creating/submitting an assessment.
+          method: 'POST',
+
+
+          // Do NOT manually set Content-Type here.
+          // The browser automatically creates the multipart/form-data
+          // boundary required by FormData.
+          headers: {
+
+            // Send the current audit session ID.
+            'X-Session-ID':
+              localStorage.getItem(
+                'audit_session_id'
+              ) ||
+              'sess_' + activeUser,
+
+
+            // Send the active user ID.
+            'X-User-ID':
+              activeUser
+          },
+
+
+          // Send the multipart form data.
+          body: formData
+        }
+      );
+
+
+      // Continue only if the backend accepted the submission.
       if (response.ok) {
-        const result = await response.json();
+
+        // Convert the response JSON into JavaScript data.
+        const result =
+          await response.json();
+
+
+        // Store the returned assessment result.
         setScorecard(result);
-        fetchHistory();
+
+
+        // Assessment history refresh is currently disabled.
+        // fetchHistory();
       }
+
     } catch (err) {
-      console.error('Failed to submit assessment:', err);
+
+      // Handle network/submission errors.
+      console.error(
+        'Failed to submit assessment:',
+        err
+      );
+
     } finally {
+
+      // Stop the submission loading state.
       setIsSubmitting(false);
     }
   };
 
+
+  // ---------------- RETURN TO LOBBY ----------------
+
+  // Reset the current assessment and return to the category-selection screen.
   const handleBackToLobby = () => {
+
+    // Allow a new assessment to be submitted.
+    submissionStartedRef.current = false;
+
+
+    // Remove the selected category.
     setSelectedCategory(null);
+
+
+    // Remove the current questions.
     setQuestions([]);
+
+
+    // Clear the previous scorecard.
     setScorecard(null);
+
+
+    // Mark the quiz as inactive.
     setQuizActive(false);
+
+
+    // Reset the warning count.
     setWarningsCount(0);
+
+
+    // Clear the warning history.
     setWarningsLog([]);
   };
 
@@ -740,63 +1726,77 @@ const AssessmentPage: React.FC = () => {
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                   <h3 style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>My Assessment History</h3>
-                  <button
-                    type="button"
-                    onClick={fetchHistory}
-                    className="btn btn-secondary"
-                    style={{ padding: '4px 10px', fontSize: '11px' }}
-                    disabled={isLoadingHistory}
-                  >
-                    <RefreshCw size={11} className={isLoadingHistory ? 'spin' : ''} />
-                    Refresh History
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      type="button"
+                      onClick={toggleHistory}
+                      className="btn btn-secondary"
+                      style={{ padding: '4px 10px', fontSize: '11px' }}
+                    >
+                      {showHistory ? 'Hide History' : 'Show History'}
+                    </button>
+                    {showHistory && (
+                      <button
+                        type="button"
+                        onClick={fetchHistory}
+                        className="btn btn-secondary"
+                        style={{ padding: '4px 10px', fontSize: '11px' }}
+                        disabled={isLoadingHistory}
+                      >
+                        <RefreshCw size={11} className={isLoadingHistory ? 'spin' : ''} />
+                        Refresh
+                      </button>
+                    )}
+                  </div>
                 </div>
 
-                {isLoadingHistory && history.length === 0 ? (
-                  <div className="glass-card" style={{ padding: '30px', textAlign: 'center' }}>
-                    <div className="pulse-dot" style={{ margin: '0 auto 8px auto' }}></div>
-                    <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Retrieving test logs...</span>
-                  </div>
-                ) : history.length === 0 ? (
-                  <div className="glass-card" style={{ padding: '30px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '13px' }}>
-                    No assessments logged yet. Start a quiz above to record evaluation logs.
-                  </div>
-                ) : (
-                  <div style={{ overflowX: 'auto', background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-                    <table className="logs-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
-                      <thead>
-                        <tr style={{ background: 'rgba(255, 255, 255, 0.02)', borderBottom: '1px solid var(--border-color)' }}>
-                          <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: 500 }}>Category</th>
-                          <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: 500 }}>Date Taken</th>
-                          <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: 500 }}>Grade Score</th>
-                          <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: 500 }}>Evaluation</th>
-                          <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: 500 }}>Proctoring</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {history.map((item) => (
-                          <React.Fragment key={item.id}>
-                            <tr
-                              onClick={() => setExpandedAttemptId(expandedAttemptId === item.id ? null : item.id!)}
-                              style={{ borderBottom: '1px solid var(--border-color)', cursor: 'pointer' }}
-                            >
-                              <td style={{ padding: '12px 16px', fontWeight: 600 }}>{item.quizCategory}</td>
-                              <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>
-                                {new Date(item.completedAt).toLocaleDateString()} -{' '}
-                                {new Date(item.completedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                              </td>
-                              <td style={{ padding: '12px 16px', fontWeight: 'bold', color: item.isPassed ? 'var(--status-success)' : 'var(--status-failed)' }}>
-                                {item.quizCategory && item.quizCategory.includes('Data Structures') ? (item.isPassed ? 'Pending' : 'Failed') : `${item.score}%`}
-                              </td>
-                              <td style={{ padding: '12px 16px' }}>
-                                <span style={{
-                                  padding: '2px 8px',
-                                  borderRadius: '4px',
-                                  fontSize: '11px',
-                                  fontWeight: 600,
-                                  background: item.isPassed ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-                                  border: `1px solid ${item.isPassed ? 'var(--status-success)' : 'var(--status-failed)'}`,
-                                  color: item.isPassed ? 'var(--status-success)' : 'var(--status-failed)'
+                {showHistory && (
+                  <>
+                    {isLoadingHistory && history.length === 0 ? (
+                      <div className="glass-card" style={{ padding: '30px', textAlign: 'center' }}>
+                        <div className="pulse-dot" style={{ margin: '0 auto 8px auto' }}></div>
+                        <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Retrieving test logs...</span>
+                      </div>
+                    ) : history.length === 0 ? (
+                      <div className="glass-card" style={{ padding: '30px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '13px' }}>
+                        No assessments logged yet. Start a quiz above to record evaluation logs.
+                      </div>
+                    ) : (
+                      <div style={{ overflowX: 'auto', background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                        <table className="logs-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+                          <thead>
+                            <tr style={{ background: 'rgba(255, 255, 255, 0.02)', borderBottom: '1px solid var(--border-color)' }}>
+                              <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: 500 }}>Category</th>
+                              <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: 500 }}>Date Taken</th>
+                              <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: 500 }}>Grade Score</th>
+                              <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: 500 }}>Evaluation</th>
+                              <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: 500 }}>Proctoring</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {history.map((item) => (
+                              <React.Fragment key={item.id}>
+                                <tr
+                                  onClick={() => setExpandedAttemptId(expandedAttemptId === item.id ? null : item.id!)}
+                                  style={{ borderBottom: '1px solid var(--border-color)', cursor: 'pointer' }}
+                                >
+                                  <td style={{ padding: '12px 16px', fontWeight: 600 }}>{item.quizCategory}</td>
+                                  <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>
+                                    {new Date(item.completedAt).toLocaleDateString()} -{' '}
+                                    {new Date(item.completedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </td>
+                                  <td style={{ padding: '12px 16px', fontWeight: 'bold', color: item.isPassed ? 'var(--status-success)' : 'var(--status-failed)' }}>
+                                    {item.quizCategory && item.quizCategory.includes('Data Structures') ? (item.isPassed ? 'Pending' : 'Failed') : `${item.score}%`}
+                                  </td>
+                                  <td style={{ padding: '12px 16px' }}>
+                                    <span style={{
+                                      padding: '2px 8px',
+                                      borderRadius: '4px',
+                                      fontSize: '11px',
+                                      fontWeight: 600,
+                                      background: item.isPassed ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                                      border: `1px solid ${item.isPassed ? 'var(--status-success)' : 'var(--status-failed)'}`,
+                                      color: item.isPassed ? 'var(--status-success)' : 'var(--status-failed)'
                                 }}>
                                   {item.isPassed ? 'PASSED' : 'FAILED'}
                                 </span>
@@ -871,13 +1871,15 @@ const AssessmentPage: React.FC = () => {
                     </table>
                   </div>
                 )}
-              </div>
-
-            </div>
-          )}
+              </>
+            )}
+          </div>
 
         </div>
-      </div>
+      )}
+
+    </div>
+  </div>
 
       {/* Grading Toast */}
       {isSubmitting && (

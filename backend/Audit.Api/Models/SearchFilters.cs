@@ -1,0 +1,3 @@
+using System;
+namespace Audit.Api.Models;
+public class SearchFilters { public string? Search { get; set; } public string? UserId { get; set; } public string? SessionId { get; set; } public string? EventType { get; set; } public string? Status { get; set; } public string? Module { get; set; } public string? CorrelationId { get; set; } public DateTime? FromDate { get; set; } public DateTime? ToDate { get; set; } public int Page { get; set; } = 1; public int PageSize { get; set; } = 10; public string? SortBy { get; set; } public bool IsAscending { get; set; } }

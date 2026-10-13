@@ -1,13 +1,16 @@
 using System;
-using System.Text;
 using System.Threading.Tasks;
 using Audit.Api.Supervisors;
 using Audit.Api.Models;
-using Audit.Api.Middleware;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Audit.Api.Controllers;
 
+/// <summary>
+/// The Presentation Layer (Controller) for Audit Logging.
+/// Acts strictly as a "dumb router", delegating all business logic, validation, 
+/// and data processing to the Supervisor layer to maintain a clean 3-Tier Architecture.
+/// </summary>
 [ApiController]
 [Route("api/[controller]")]
 public class AuditController : ControllerBase
@@ -21,149 +24,75 @@ public class AuditController : ControllerBase
         _loggingService = loggingService;
     }
 
+    /// <summary>
+    /// Retrieves a paginated list of audit logs based on standard UI filters.
+    /// </summary>
     [HttpGet]
-    public async Task<IActionResult> GetLogs(
-        [FromQuery] string? search,
-        [FromQuery] string? userId,
-        [FromQuery] string? sessionId,
-        [FromQuery] string? eventType,
-        [FromQuery] string? status,
-        [FromQuery] string? module,
-        [FromQuery] string? correlationId,
-        [FromQuery] DateTime? fromDate,
-        [FromQuery] DateTime? toDate,
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20,
-        [FromQuery] string sortBy = "Timestamp",
-        [FromQuery] bool isAscending = false)
+    public async Task<IActionResult> GetLogs([FromQuery] SearchFilters filters)
     {
-        if (page < 1) page = 1;
-        if (pageSize < 1 || pageSize > 100) pageSize = 20;
-
-        var (items, totalCount) = await _queries.GetFilteredLogsAsync(
-            search,
-            userId,
-            sessionId,
-            eventType,
-            status,
-            module,
-            correlationId,
-            fromDate,
-            toDate,
-            page,
-            pageSize,
-            sortBy,
-            isAscending);
-
-        var totalPages = (int)Math.Ceiling((double)totalCount / pageSize);
-
-        return Ok(new
-        {
-            Items = items,
-            TotalCount = totalCount,
-            Page = page,
-            PageSize = pageSize,
-            TotalPages = totalPages
-        });
+        // Blindly passes the Data Transfer Object (DTO) to the Supervisor
+        var result = await _queries.GetFilteredLogsAsync(filters);
+        return Ok(result);
     }
 
+    /// <summary>
+    /// Retrieves a specific audit log by its unique ID.
+    /// </summary>
     [HttpGet("{id}")]
     public async Task<IActionResult> GetLogById(string id)
     {
         var log = await _queries.GetLogByIdAsync(id);
-        if (log == null)
-        {
-            return NotFound(new { Message = $"Audit log with ID {id} not found." });
-        }
+        if (log == null) return NotFound(new { Message = $"Audit log with ID {id} not found." });
         return Ok(log);
     }
 
+    /// <summary>
+    /// Retrieves the chronological event timeline for a specific user or session.
+    /// </summary>
     [HttpGet("timeline")]
     public async Task<IActionResult> GetTimeline([FromQuery] string? userId, [FromQuery] string? sessionId)
     {
-        if (string.IsNullOrWhiteSpace(userId) && string.IsNullOrWhiteSpace(sessionId))
-        {
-            return BadRequest(new { Message = "Either UserId or SessionId must be provided to construct a timeline." });
-        }
-
+        // ARCHITECTURE NOTE: Validation (checking for empty IDs) is intentionally 
+        // delegated to the Supervisor to keep the Controller free of business logic.
         var timeline = await _queries.GetTimelineAsync(userId, sessionId);
         return Ok(timeline);
     }
 
+    /// <summary>
+    /// Creates a new audit log. Extracts ambient HTTP context before delegating creation.
+    /// </summary>
     [HttpPost]
     public async Task<IActionResult> CreateLog([FromBody] AuditLog log)
     {
-        if (string.IsNullOrWhiteSpace(log.SessionId))
-        {
-            return BadRequest(new { Message = "SessionId is required." });
-        }
+        // ARCHITECTURE NOTE: The HTTP layer is only responsible for extracting network-specific 
+        // data. Entity validation (like missing SessionId) is handled by the Model/Supervisor.
+        var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
+        var userAgent = Request.Headers.UserAgent.ToString();
 
-        if (string.IsNullOrWhiteSpace(log.EventType))
-        {
-            return BadRequest(new { Message = "EventType is required." });
-        }
+        var correlationId = HttpContext.Items.TryGetValue(Middleware.CorrelationIdMiddleware.CorrelationIdHeaderKey, out var cid)
+            ? cid?.ToString()
+            : null;
 
-        if (log.Timestamp == default) log.Timestamp = DateTime.UtcNow;
-        if (string.IsNullOrWhiteSpace(log.IpAddress)) log.IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1";
-        if (string.IsNullOrWhiteSpace(log.UserAgent)) log.UserAgent = Request.Headers.UserAgent.ToString();
+        var createdLog = await _loggingService.ProcessAndLogAsync(log, ipAddress, userAgent, correlationId);
 
-        if (string.IsNullOrWhiteSpace(log.CorrelationId))
-        {
-            log.CorrelationId = HttpContext.Items.TryGetValue(CorrelationIdMiddleware.CorrelationIdHeaderKey, out var cid)
-                ? cid?.ToString() ?? Guid.NewGuid().ToString()
-                : Guid.NewGuid().ToString();
-        }
-
-        // Clean System.Text.Json JsonElement types from metadata dictionary to prevent MongoDB serialization crash
-        if (log.Metadata != null)
-        {
-            var cleanedMetadata = new System.Collections.Generic.Dictionary<string, object>();
-            foreach (var kvp in log.Metadata)
-            {
-                cleanedMetadata[kvp.Key] = UnwrapJsonElement(kvp.Value) ?? "null";
-            }
-            log.Metadata = cleanedMetadata;
-        }
-
-        await _loggingService.LogAsync(log);
-        // Indicate the controller created an audit entry for this request
+        // Flags the context so middleware knows a log was successfully written
         HttpContext.Items["AuditLogWritten"] = true;
-        return CreatedAtAction(nameof(GetLogById), new { id = log.Id }, log);
+        return CreatedAtAction(nameof(GetLogById), new { id = createdLog.Id }, createdLog);
     }
 
-    private static object? UnwrapJsonElement(object? value)
+    /// <summary>
+    /// The entry point for the Composite Filter Pattern. Merges Natural Language intent 
+    /// with standard UI filters.
+    /// </summary>
+    [HttpGet("search/nlp")]
+    public async Task<IActionResult> NaturalLanguageSearch(
+        [FromQuery] string query,
+        [FromQuery] SearchFilters standardFilters,
+        [FromQuery] string priority = "NLP")
     {
-        if (value is System.Text.Json.JsonElement element)
-        {
-            switch (element.ValueKind)
-            {
-                case System.Text.Json.JsonValueKind.String:
-                    return element.GetString();
-                case System.Text.Json.JsonValueKind.Number:
-                    if (element.TryGetInt64(out long l)) return l;
-                    return element.GetDouble();
-                case System.Text.Json.JsonValueKind.True:
-                    return true;
-                case System.Text.Json.JsonValueKind.False:
-                    return false;
-                case System.Text.Json.JsonValueKind.Null:
-                    return null;
-                case System.Text.Json.JsonValueKind.Object:
-                    var dict = new System.Collections.Generic.Dictionary<string, object?>();
-                    foreach (var prop in element.EnumerateObject())
-                    {
-                        dict[prop.Name] = UnwrapJsonElement(prop.Value);
-                    }
-                    return dict;
-                case System.Text.Json.JsonValueKind.Array:
-                    var list = new System.Collections.Generic.List<object?>();
-                    foreach (var item in element.EnumerateArray())
-                    {
-                        list.Add(UnwrapJsonElement(item));
-                    }
-                    return list;
-            }
-        }
-        return value;
+        // ARCHITECTURE NOTE: Bypasses manual string checks. If the query is empty, 
+        // the Supervisor is smart enough to route it back to the standard UI filter pipeline.
+        var response = await _queries.SearchNlpAsync(query, standardFilters, priority);
+        return Ok(response);
     }
 }

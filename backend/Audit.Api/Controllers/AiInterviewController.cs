@@ -4,116 +4,109 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Audit.Api.DTOs;
 using Audit.Api.Models;
-using Audit.Api.Services;
 using Audit.Api.Supervisors;
 using System.Collections.Generic;
 
 namespace Audit.Api.Controllers
 {
+    /// <summary>
+    /// The Presentation Layer for AI Interview workflows.
+    /// Acts strictly as an HTTP ingress router. Its only responsibilities are mapping 
+    /// multipart form data, streaming video files, and extracting ambient network context 
+    /// (Headers, IP, Session) before delegating all persistence and business logic to the Supervisor.
+    /// </summary>
     [ApiController]
     [Route("api/[controller]")]
     public class AiInterviewController : ControllerBase
     {
-        private readonly IAiInterviewService _interviewService;
-        private readonly IAuditLoggingSupervisor _auditService;
-        private readonly IWebHostEnvironment _env;
+        private readonly IAiInterviewSupervisor _interviewSupervisor;
 
-        public AiInterviewController(IAiInterviewService interviewService, IAuditLoggingSupervisor auditService, IWebHostEnvironment env)
+        public AiInterviewController(IAiInterviewSupervisor interviewSupervisor)
         {
-            _interviewService = interviewService;
-            _auditService = auditService;
-            _env = env;
+            _interviewSupervisor = interviewSupervisor;
         }
 
+        /// <summary>
+        /// Intercepts a completed AI interview submission, including the video stream and metadata.
+        /// </summary>
         [HttpPost("submit")]
         [Consumes("multipart/form-data")]
-        public async Task<IActionResult> SubmitInterview([FromForm] string username, [FromForm] string role, [FromForm] string question, [FromForm] string transcript, [FromForm] int warningsCount, [FromForm] string warningsLogJson, IFormFile? videoFile)
+        public async Task<IActionResult> SubmitInterview(
+            [FromForm] string username,
+            [FromForm] string role,
+            [FromForm] string question,
+            [FromForm] string? transcript,
+            [FromForm] int warningsCount,
+            [FromForm] string? warningsLogJson,
+            IFormFile? videoFile) // ARCHITECTURE NOTE: IFormFile allows efficient memory streaming of the video instead of buffering it all at once.
         {
-            var correlationId = HttpContext.Items.TryGetValue("X-Correlation-ID", out var cid) 
-                ? cid?.ToString() ?? Guid.NewGuid().ToString() 
-                : Guid.NewGuid().ToString();
-            
-            string videoUrl = "";
+            // ARCHITECTURE NOTE: The Controller's only job is to extract network-specific ambient data.
+            var correlationId = HttpContext.Items.TryGetValue("X-Correlation-ID", out var cid) ? cid?.ToString() ?? Guid.NewGuid().ToString() : Guid.NewGuid().ToString();
+            var userAgent = Request.Headers.UserAgent.ToString();
+            var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1";
+            var requestPath = HttpContext.Request.Path;
+            var sessionId = HttpContext.Items["SessionId"]?.ToString() ?? ("sess_" + username);
 
-            if (videoFile != null && videoFile.Length > 0)
-            {
-                var uploadDir = Path.Combine(_env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot"), "uploads", "interviews");
-                Directory.CreateDirectory(uploadDir);
-                var fileName = $"{Guid.NewGuid()}_{videoFile.FileName}";
-                if (string.IsNullOrEmpty(Path.GetExtension(videoFile.FileName)))
-                {
-                    fileName += ".webm";
-                }
-                using (var stream = new FileStream(Path.Combine(uploadDir, fileName), FileMode.Create))
-                {
-                    await videoFile.CopyToAsync(stream);
-                }
-                videoUrl = $"/uploads/interviews/{fileName}";
-            }
 
-            var warningsLog = new List<string>();
-            try
-            {
-                if (!string.IsNullOrWhiteSpace(warningsLogJson))
-                {
-                    warningsLog = System.Text.Json.JsonSerializer.Deserialize<List<string>>(warningsLogJson) ?? new();
-                }
-            }
-            catch { }
+            var result = await _interviewSupervisor.SubmitInterviewAsync(username, role, question, transcript, warningsCount, warningsLogJson, videoFile, ipAddress, userAgent, correlationId, sessionId, requestPath);
 
-            var score = "Pending"; 
-            var aiFeedback = "Analysis queued. Video and transcript have been securely captured.";
+            // Flag for middleware to know the operation succeeded
+            HttpContext.Items["AuditLogWritten"] = true;
+            return Ok(result);
+        }
 
-            var interviewRecord = new AiInterview
-            {
-                Username = username,
-                RoleAppliedFor = role,
-                QuestionText = question,
-                CandidateTranscript = transcript,
-                Score = score,
-                AiFeedback = aiFeedback,
-                VideoUrl = videoUrl,
-                WarningsCount = warningsCount,
-                WarningsLog = warningsLog
-            };
-            await _interviewService.SaveInterviewAsync(interviewRecord);
+        /// <summary>
+        /// Retrieves the interview history for a specific user.
+        /// </summary>
+        [HttpGet("history/{username}")]
+        public async Task<ActionResult<List<AiInterview>>> GetHistory(string username)
+        {
+            // Blindly routes the request to the Supervisor
+            var history = await _interviewSupervisor.GetHistoryByUsernameAsync(username);
+            return Ok(history);
+        }
+
+        /// <summary>
+        /// Records an audit log when a user views the AI Interview dashboard.
+        /// </summary>
+        [HttpPost("log-view")]
+        public async Task<IActionResult> LogView()
+        {
+            // ARCHITECTURE NOTE: Extracts custom frontend identifiers directly from HTTP Headers
+            var username = Request.Headers["X-User-ID"].ToString();
 
             var userAgent = Request.Headers.UserAgent.ToString();
             var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1";
             var requestPath = HttpContext.Request.Path;
-
+            var correlationId = HttpContext.Items.TryGetValue("X-Correlation-ID", out var cid) ? cid?.ToString() ?? Guid.NewGuid().ToString() : Guid.NewGuid().ToString();
             var sessionId = HttpContext.Items["SessionId"]?.ToString() ?? ("sess_" + username);
 
-            await _auditService.LogAsync(new AuditLog
-            {
-                Timestamp = DateTime.UtcNow,
-                UserId = username,
-                SessionId = sessionId,
-                EventType = "Business",
-                Module = "Interview",
-                Action = "InterviewCompleted",
-                Status = "SUCCESS",
-                CorrelationId = correlationId,
-                RequestPath = requestPath,
-                IpAddress = ipAddress,
-                UserAgent = userAgent,
-                Metadata = new Dictionary<string, object> { 
-                    { "InterviewId", interviewRecord.Id ?? "" }, 
-                    { "Role", role }, 
-                    { "Score", score },
-                    { "Warnings", warningsCount }
-                }
-            });
+            await _interviewSupervisor.LogViewAsync(username, ipAddress, userAgent, correlationId, sessionId, requestPath);
 
-            return Ok(new { Message = "Interview processed successfully", Score = score, Feedback = aiFeedback, WarningsCount = warningsCount });
+            HttpContext.Items["AuditLogWritten"] = true;
+            return Ok();
         }
 
-        [HttpGet("history/{username}")]
-        public async Task<IActionResult> GetHistory(string username)
+        /// <summary>
+        /// Records an audit log detailing which hardware permissions (camera/mic) were granted or denied.
+        /// </summary>
+        [HttpPost("log-permissions")]
+        public async Task<IActionResult> LogPermissions([FromBody] PermissionsPayload payload)
         {
-            var history = await _interviewService.GetHistoryByUsernameAsync(username);
-            return Ok(history);
+            var username = Request.Headers["X-User-ID"].ToString();
+
+            var userAgent = Request.Headers.UserAgent.ToString();
+            var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1";
+            var requestPath = HttpContext.Request.Path;
+            var correlationId = HttpContext.Items.TryGetValue("X-Correlation-ID", out var cid) ? cid?.ToString() ?? Guid.NewGuid().ToString() : Guid.NewGuid().ToString();
+            var sessionId = HttpContext.Items["SessionId"]?.ToString() ?? ("sess_" + username);
+
+            await _interviewSupervisor.LogPermissionsAsync(payload, username, ipAddress, userAgent, correlationId, sessionId, requestPath);
+
+            HttpContext.Items["AuditLogWritten"] = true;
+            return Ok(new { Message = "Permissions logged successfully" });
         }
     }
 }

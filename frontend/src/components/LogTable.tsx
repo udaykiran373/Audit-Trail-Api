@@ -79,9 +79,6 @@ export const LogTable: React.FC<LogTableProps> = ({
               <th onClick={() => onSort('Module')} style={{ cursor: 'pointer' }}>
                 Module {renderSortIndicator('Module')}
               </th>
-              <th onClick={() => onSort('Action')} style={{ cursor: 'pointer' }}>
-                Action {renderSortIndicator('Action')}
-              </th>
               <th>User ID</th>
               <th>Status</th>
               <th>Correlation ID</th>
@@ -105,11 +102,8 @@ export const LogTable: React.FC<LogTableProps> = ({
                     {log.eventType}
                   </span>
                 </td>
-                <td>
-                  <span style={{ opacity: 0.8 }}>{log.module}</span>
-                </td>
                 <td style={{ fontWeight: 500, maxWidth: '250px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {log.action}
+                  {log.module}
                 </td>
                 <td>
                   {log.userId ? (

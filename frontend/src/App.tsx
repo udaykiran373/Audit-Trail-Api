@@ -1,7 +1,6 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Dashboard from './pages/Dashboard';
-import Simulation from './pages/Simulation';
 import Login from './pages/Login';
 import Hub from './pages/Hub';
 import ResumePage from './pages/ResumePage';
@@ -26,14 +25,6 @@ const App: React.FC = () => {
           element={
             <ProtectedRoute>
               <Dashboard />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/simulate"
-          element={
-            <ProtectedRoute>
-              <Simulation />
             </ProtectedRoute>
           }
         />

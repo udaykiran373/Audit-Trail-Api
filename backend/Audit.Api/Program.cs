@@ -5,8 +5,6 @@ using Audit.Api.Middleware;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Audit.Api.Repositories;
-using Audit.Api.Supervisors;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -16,11 +14,13 @@ builder.Services.Configure<MongoDbSettings>(
 
 // Register Layered components
 builder.Services.AddSingleton<MongoDbContext>();
-builder.Services.AddSingleton<IAuditLogRepository, MongoAuditLogRepository>();
+builder.Services.AddSingleton<IAuditLogRepository, AuditFileRepository>();
 builder.Services.AddSingleton<IPostRepository, MongoPostRepository>();
 builder.Services.AddSingleton<IResumeRepository, MongoResumeRepository>();
 builder.Services.AddSingleton<IAssessmentRepository, MongoAssessmentRepository>();
 
+// This automatically injects the HttpClient into the parser
+builder.Services.AddHttpClient<Audit.Api.Services.NlpQueryParser>();
 builder.Services.AddScoped<IAuditLoggingSupervisor, AuditLoggingSupervisor>();
 builder.Services.AddScoped<IAuditLogQueriesSupervisor, AuditLogQueriesSupervisor>();
 builder.Services.AddScoped<IPostSupervisor, PostSupervisor>();
@@ -28,7 +28,8 @@ builder.Services.AddScoped<IResumeSupervisor, ResumeSupervisor>();
 builder.Services.AddScoped<IAssessmentSupervisor, AssessmentSupervisor>();
 builder.Services.AddScoped<IAuthRepository, AuthRepository>();
 builder.Services.AddScoped<IAuthSupervisor, AuthSupervisor>();
-builder.Services.AddScoped<Audit.Api.Services.IAiInterviewService, Audit.Api.Services.AiInterviewService>();
+builder.Services.AddScoped<IAiInterviewRepository, MongoAiInterviewRepository>();
+builder.Services.AddScoped<IAiInterviewSupervisor, AiInterviewSupervisor>();
 // Add API Controllers services and enforce camelCase JSON for frontend compatibility
 builder.Services.AddControllers().AddJsonOptions(opts =>
 {

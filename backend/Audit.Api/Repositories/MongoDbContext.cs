@@ -12,11 +12,18 @@ using MongoDB.Driver;
 
 namespace Audit.Api.Repositories;
 
+/// <summary>
+/// Represents the MongoDB database context, managing connections and basic seeding.
+/// </summary>
 public class MongoDbContext
 {
     private readonly IMongoDatabase _database;
     private readonly string _collectionName;
 
+    /// <summary>
+    /// Initializes a new instance of the MongoDbContext class, configures mappings, and seeds initial data.
+    /// </summary>
+    /// <param name="settings">The MongoDB configuration settings.</param>
     public MongoDbContext(IOptions<MongoDbSettings> settings)
     {
         var client = new MongoClient(settings.Value.ConnectionString);

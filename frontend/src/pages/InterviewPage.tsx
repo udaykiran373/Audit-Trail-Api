@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
-import { Mic, CheckCircle, AlertTriangle, RefreshCw, StopCircle, PlayCircle, Video, FileText } from 'lucide-react';
+import { Mic, CheckCircle, AlertTriangle, RefreshCw, StopCircle, PlayCircle, Video, FileText, UserCircle, ArrowLeft } from 'lucide-react';
 import Sidebar from '../components/Sidebar';
 import AssessmentRoom from '../components/AssessmentRoom';
-
-const API_BASE_URL = 'http://localhost:5081/api';
+import {API_BASE_URL} from '../config';
+// const API_BASE_URL = 'http://localhost:5081/api';
 
 const INTERVIEW_ROLES = [
   { role: "Full-Stack Developer", question: "Can you explain your approach to designing a scalable backend architecture for a high-traffic application?" },
@@ -19,6 +19,7 @@ export default function InterviewPage() {
   const currentRole = INTERVIEW_ROLES[selectedRoleIndex];
 
   const [isRecording, setIsRecording] = useState(false);
+  const [isInterviewActive, setIsInterviewActive] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [feedback, setFeedback] = useState<{ score: string, text: string } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -27,14 +28,28 @@ export default function InterviewPage() {
   const [warningsCount, setWarningsCount] = useState<number>(0);
   const [warningsLog, setWarningsLog] = useState<string[]>([]);
   const [history, setHistory] = useState<any[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   
+  const [permissionState, setPermissionState] = useState<'idle' | 'requesting' | 'granted' | 'denied'>('idle');
   const [selectedTranscript, setSelectedTranscript] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const speechRecognitionRef = useRef<any>(null);
+
+  // Log page view on mount
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/aiinterview/log-view`, {
+      method: 'POST',
+      headers: {
+        'X-Session-ID': activeSessionId,
+        'X-User-ID': activeUser,
+        'Content-Type': 'application/json'
+      }
+    }).catch(err => console.error('Failed to log interview page view:', err));
+  }, []);
 
   const fetchHistory = async () => {
     setIsLoadingHistory(true);
@@ -57,14 +72,55 @@ export default function InterviewPage() {
     }
   };
 
-  useEffect(() => {
-    fetchHistory();
-    // Setup camera on load
+  const toggleHistory = () => {
+    if (!showHistory) {
+      fetchHistory();
+    }
+    setShowHistory(!showHistory);
+  };
+
+  const handleInitiateInterview = (index: number) => {
+    setSelectedRoleIndex(index);
+    setPermissionState('requesting');
+    
     navigator.mediaDevices.getUserMedia({ video: true, audio: true })
       .then((stream) => {
-        if (videoRef.current) videoRef.current.srcObject = stream;
+        // Stop temporary stream since the actual video tag will request it again or we can reuse it
+        stream.getTracks().forEach(t => t.stop());
+        setPermissionState('granted');
+        
+        fetch(`${API_BASE_URL}/aiinterview/log-permissions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Session-ID': activeSessionId,
+            'X-User-ID': activeUser
+          },
+          body: JSON.stringify({ granted: true, cameraGranted: true, microphoneGranted: true })
+        }).catch(e => console.error(e));
+
+        setIsInterviewActive(true);
       })
-      .catch((err) => console.error("Camera permissions denied:", err));
+      .catch((err) => {
+        console.warn('Permissions denied', err);
+        setPermissionState('denied');
+        
+        fetch(`${API_BASE_URL}/aiinterview/log-permissions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Session-ID': activeSessionId,
+            'X-User-ID': activeUser
+          },
+          body: JSON.stringify({ granted: false, cameraGranted: false, microphoneGranted: false })
+        }).catch(e => console.error(e));
+      });
+  };
+
+  useEffect(() => {
+    // We get camera stream when component renders the video tag, 
+    // which is handled below in another useEffect for isInterviewActive.
+
 
     // Initialize Web Speech API
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -107,6 +163,23 @@ export default function InterviewPage() {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [isRecording]);
+
+  useEffect(() => {
+    if (isInterviewActive) {
+      navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+        .then((stream) => {
+          if (videoRef.current) videoRef.current.srcObject = stream;
+        })
+        .catch(err => console.error("Could not attach camera to video view:", err));
+    } else {
+      // Stop stream when exiting interview room
+      if (videoRef.current && videoRef.current.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach(t => t.stop());
+        videoRef.current.srcObject = null;
+      }
+    }
+  }, [isInterviewActive]);
 
   const addWarning = (type: string) => {
     setWarningsCount(prev => prev + 1);
@@ -190,29 +263,65 @@ export default function InterviewPage() {
         <h1 className="neon-title" style={{ fontSize: '24px', marginBottom: '8px' }}>AI Video Interview</h1>
         <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>Proctored automated technical screening</p>
 
+        {/* Permission Flow Modal */}
+        {permissionState === 'requesting' && (
+          <div className="modal-backdrop">
+            <div className="modal-content" style={{ maxWidth: '450px', textAlign: 'center', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: 600 }}>AI Interview Setup</h3>
+              <div style={{ margin: '12px auto' }}>
+                <Video size={48} className="pulse-dot" style={{ color: 'var(--accent-purple)', animationDuration: '2s' }} />
+              </div>
+              <p style={{ fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                This interview runs on an **AI Proctoring and Video Response** system. Please click "Allow" on the browser prompt to grant **Camera and Microphone** access.
+              </p>
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Waiting for device permissions...</span>
+            </div>
+          </div>
+        )}
+
+        {permissionState === 'denied' && (
+          <div className="modal-backdrop">
+            <div className="modal-content" style={{ maxWidth: '450px', textAlign: 'center', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--status-failed)' }}>Permissions Blocked</h3>
+              <div style={{ margin: '12px auto' }}>
+                <AlertTriangle size={48} style={{ color: 'var(--status-failed)' }} />
+              </div>
+              <p style={{ fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                Camera and Microphone access are required to take this interview. Please enable them in your browser settings and try again.
+              </p>
+              <button onClick={() => setPermissionState('idle')} className="btn btn-primary" style={{ height: '36px' }}>
+                Close
+              </button>
+            </div>
+          </div>
+        )}
+
         {feedback ? (
           <div className="glass-card" style={{ padding: '24px', textAlign: 'center', marginBottom: '24px' }}>
             <CheckCircle size={48} style={{ color: 'var(--status-success)', margin: '0 auto 16px auto' }} />
             <h2>Interview Submitted</h2>
             <div style={{ fontSize: '32px', fontWeight: 'bold', margin: '16px 0', color: 'var(--accent-purple)' }}>Score: {feedback.score}</div>
             <p>{feedback.text}</p>
-            <button className="btn btn-primary" onClick={() => setFeedback(null)} style={{ marginTop: '16px' }}>Start Another Interview</button>
+            <button className="btn btn-primary" onClick={() => { setFeedback(null); setIsInterviewActive(false); }} style={{ marginTop: '16px' }}>Return to Roles</button>
           </div>
-        ) : (
+        ) : isInterviewActive ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', marginBottom: '24px' }}>
             
-            <div className="glass-card" style={{ padding: '16px', display: 'flex', gap: '16px', alignItems: 'center' }}>
-              <span style={{ fontWeight: 600 }}>Select Role:</span>
-              <select 
-                value={selectedRoleIndex} 
-                onChange={(e) => setSelectedRoleIndex(Number(e.target.value))}
-                disabled={isRecording}
-                style={{ padding: '8px', borderRadius: '4px', background: 'rgba(0,0,0,0.2)', color: 'white', border: '1px solid var(--border-color)', flex: 1 }}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h2 style={{ fontSize: '18px', fontWeight: 600 }}>Role: {currentRole.role}</h2>
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => {
+                  if (isRecording) {
+                    if (!window.confirm('Are you sure you want to exit? Your recording will be lost.')) return;
+                  }
+                  setIsInterviewActive(false);
+                }}
+                style={{ padding: '6px 12px', fontSize: '12px' }}
               >
-                {INTERVIEW_ROLES.map((r, i) => (
-                  <option key={i} value={i}>{r.role}</option>
-                ))}
-              </select>
+                <ArrowLeft size={14} style={{ marginRight: '6px' }} />
+                Back to Roles
+              </button>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
@@ -272,84 +381,139 @@ export default function InterviewPage() {
               </div>
             </div>
           </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', marginBottom: '24px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px' }}>
+              {INTERVIEW_ROLES.map((r, i) => {
+                let description = '';
+                if (r.role.includes('Full-Stack')) {
+                  description = 'Technical screening focusing on backend architectures and high-traffic system design.';
+                } else if (r.role.includes('Frontend')) {
+                  description = 'Evaluation covering state management, performance, and advanced React patterns.';
+                } else if (r.role.includes('Database')) {
+                  description = 'Test your ability to optimize queries, manage database performance, and tune SQL.';
+                } else {
+                  description = 'General behavioral and technical screening.';
+                }
+
+                return (
+                  <div key={i} className="glass-card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '16px' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                        <UserCircle size={16} style={{ color: 'var(--accent-purple)' }} />
+                        <strong style={{ fontSize: '15px', color: 'var(--text-primary)' }}>{r.role}</strong>
+                      </div>
+                      <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                        {description}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleInitiateInterview(i)}
+                      className="btn btn-primary"
+                      style={{ height: '36px', width: '100%', fontSize: '12px' }}
+                    >
+                      Start Interview
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         )}
 
         {/* Past History Log */}
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
             <h3 style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>Interview History</h3>
-            <button
-              type="button"
-              onClick={fetchHistory}
-              className="btn btn-secondary"
-              style={{ padding: '4px 10px', fontSize: '11px' }}
-              disabled={isLoadingHistory}
-            >
-              <RefreshCw size={11} className={isLoadingHistory ? 'spin' : ''} />
-              Refresh History
-            </button>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={toggleHistory}
+                className="btn btn-secondary"
+                style={{ padding: '4px 10px', fontSize: '11px' }}
+              >
+                {showHistory ? 'Hide History' : 'Show History'}
+              </button>
+              {showHistory && (
+                <button
+                  type="button"
+                  onClick={fetchHistory}
+                  className="btn btn-secondary"
+                  style={{ padding: '4px 10px', fontSize: '11px' }}
+                  disabled={isLoadingHistory}
+                >
+                  <RefreshCw size={11} className={isLoadingHistory ? 'spin' : ''} />
+                  Refresh
+                </button>
+              )}
+            </div>
           </div>
 
-          {isLoadingHistory && history.length === 0 ? (
-            <div className="glass-card" style={{ padding: '30px', textAlign: 'center' }}>
-              <div className="pulse-dot" style={{ margin: '0 auto 8px auto' }}></div>
-              <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Retrieving interview logs...</span>
-            </div>
-          ) : history.length === 0 ? (
-            <div className="glass-card" style={{ padding: '30px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '13px' }}>
-              No interviews logged yet.
-            </div>
-          ) : (
-            <div style={{ overflowX: 'auto', background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-              <table className="logs-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
-                <thead>
-                  <tr style={{ background: 'rgba(255, 255, 255, 0.02)', borderBottom: '1px solid var(--border-color)' }}>
-                    <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: 500 }}>Role Applied</th>
-                    <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: 500 }}>Date Taken</th>
-                    <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: 500 }}>Score</th>
-                    <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: 500 }}>Warnings</th>
-                    <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: 500 }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {history.map((item) => (
-                    <tr key={item.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                      <td style={{ padding: '12px 16px', fontWeight: 600 }}>{item.roleAppliedFor}</td>
-                      <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>
-                        {new Date(item.completedAt).toLocaleDateString()} {new Date(item.completedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </td>
-                      <td style={{ padding: '12px 16px' }}>
-                        <span style={{ 
-                          padding: '4px 8px', 
-                          borderRadius: '4px', 
-                          background: item.score === 'Pending' ? 'rgba(234, 179, 8, 0.1)' : 'rgba(168, 85, 247, 0.1)', 
-                          color: item.score === 'Pending' ? '#eab308' : 'var(--accent-purple)' 
-                        }}>
-                          {item.score}
-                        </span>
-                      </td>
-                      <td style={{ padding: '12px 16px', color: item.warningsCount > 0 ? 'var(--status-failed)' : 'var(--status-success)' }}>
-                        {item.warningsCount}
-                      </td>
-                      <td style={{ padding: '12px 16px', display: 'flex', gap: '16px', alignItems: 'center' }}>
-                        {item.videoUrl ? (
-                          <a href={`http://localhost:5081${item.videoUrl}`} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--accent-purple)', textDecoration: 'none' }}>
-                            <Video size={14} /> View Video
-                          </a>
-                        ) : <span style={{ color: 'var(--text-muted)' }}>No Video</span>}
-                        <button 
-                          type="button" 
-                          onClick={() => setSelectedTranscript(item.candidateTranscript)} 
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--accent-purple)', background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, fontSize: '13px' }}
-                        >
-                          <FileText size={14} /> View Text
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          {showHistory && (
+            <>
+              {isLoadingHistory && history.length === 0 ? (
+                <div className="glass-card" style={{ padding: '30px', textAlign: 'center' }}>
+                  <div className="pulse-dot" style={{ margin: '0 auto 8px auto' }}></div>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Retrieving interview logs...</span>
+                </div>
+              ) : history.length === 0 ? (
+                <div className="glass-card" style={{ padding: '30px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '13px' }}>
+                  No interviews logged yet.
+                </div>
+              ) : (
+                <div style={{ overflowX: 'auto', background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                  <table className="logs-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+                    <thead>
+                      <tr style={{ background: 'rgba(255, 255, 255, 0.02)', borderBottom: '1px solid var(--border-color)' }}>
+                        <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: 500 }}>Role Applied</th>
+                        <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: 500 }}>Date Taken</th>
+                        <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: 500 }}>Score</th>
+                        <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: 500 }}>Warnings</th>
+                        <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: 500 }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {history.map((item) => (
+                        <tr key={item.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                          <td style={{ padding: '12px 16px', fontWeight: 600 }}>{item.roleAppliedFor}</td>
+                          <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>
+                            {new Date(item.completedAt).toLocaleDateString()} {new Date(item.completedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </td>
+                          <td style={{ padding: '12px 16px' }}>
+                            <span style={{ 
+                              padding: '4px 8px', 
+                              borderRadius: '4px', 
+                              background: item.score === 'Pending' ? 'rgba(234, 179, 8, 0.1)' : 'rgba(168, 85, 247, 0.1)', 
+                              color: item.score === 'Pending' ? '#eab308' : 'var(--accent-purple)' 
+                            }}>
+                              {item.score}
+                            </span>
+                          </td>
+                          <td style={{ padding: '12px 16px', color: item.warningsCount > 0 ? 'var(--status-failed)' : 'var(--status-success)' }}>
+                            {item.warningsCount}
+                          </td>
+                          <td style={{ padding: '12px 16px', display: 'flex', gap: '16px', alignItems: 'center' }}>
+                            {item.videoUrl ? (
+                              <a href={`http://localhost:5081${item.videoUrl}`} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--accent-purple)', textDecoration: 'none' }}>
+                                <Video size={14} /> View Video
+                              </a>
+                            ) : <span style={{ color: 'var(--text-muted)' }}>No Video</span>}
+                            <button 
+                              type="button" 
+                              onClick={() => setSelectedTranscript(item.candidateTranscript)} 
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--accent-purple)', background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, fontSize: '13px' }}
+                            >
+                              <FileText size={14} /> View Text
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

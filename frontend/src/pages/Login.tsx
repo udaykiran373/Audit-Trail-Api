@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Shield, Key, User, ArrowRight, ShieldCheck, UserPlus } from 'lucide-react';
 
@@ -11,17 +11,7 @@ const Login: React.FC = () => {
   const [successMsg, setSuccessMsg] = useState('');
   const navigate = useNavigate();
 
-  // Initialize mock credentials db on mount
-  useEffect(() => {
-    const existingUsers = localStorage.getItem('audit_users_db');
-    if (!existingUsers) {
-      const defaultUsers = [
-        { username: 'admin', password: 'admin123' },
-        { username: 'engineer', password: 'engineer123' },
-      ];
-      localStorage.setItem('audit_users_db', JSON.stringify(defaultUsers));
-    }
-  }, []);
+
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -253,14 +243,8 @@ const Login: React.FC = () => {
           </div>
         </div>
 
-        {/* Demo hints */}
-        {!isSignUp && (
-          <div style={{ textAlign: 'center', marginTop: '20px', fontSize: '12px', color: 'var(--text-secondary)' }}>
-            <p>Demo credentials available:</p>
-            <span style={{ color: 'var(--text-primary)' }}>admin</span> / <span>admin123</span> or{' '}
-            <span style={{ color: 'var(--text-primary)' }}>engineer</span> / <span>engineer123</span>
-          </div>
-        )}
+        
+        
       </div>
     </div>
   );

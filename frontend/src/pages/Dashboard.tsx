@@ -7,8 +7,9 @@ import { LogTable } from '../components/LogTable';
 import { LogDetailsModal } from '../components/LogDetailsModal';
 import { TimelineView } from '../components/TimelineView';
 import Sidebar from '../components/Sidebar';
+import {API_BASE_URL} from '../config';
 
-const API_BASE_URL = 'http://localhost:5081/api';
+// const API_BASE_URL = 'http://localhost:5081/api';
 
 const getHeaders = () => {
   const activeUser = localStorage.getItem('audit_active_user') || 'anonymous';
@@ -19,19 +20,8 @@ const getHeaders = () => {
   };
 };
 
-const getLogs = async (filters: SearchFilters): Promise<PaginatedResult<AuditLog>> => {
-  const params = new URLSearchParams();
-  Object.entries(filters).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== '') {
-      params.append(key, String(value));
-    }
-  });
-  const response = await fetch(`${API_BASE_URL}/audit?${params.toString()}`, {
-    headers: getHeaders()
-  });
-  if (!response.ok) throw new Error('Failed to fetch logs');
-  return response.json();
-};
+
+
 
 const getLogById = async (id: string): Promise<AuditLog> => {
   const response = await fetch(`${API_BASE_URL}/audit/${id}`, {
@@ -62,6 +52,8 @@ const DEFAULT_FILTERS: SearchFilters = {
   correlationId: '',
   page: 1,
   pageSize: 15,
+  sortBy: 'Timestamp',
+  isAscending: false,
 };
 
 const Dashboard: React.FC = () => {
@@ -73,37 +65,70 @@ const Dashboard: React.FC = () => {
     pageSize: 15,
     totalPages: 1,
   });
-
+  const [nlpQuery, setNlpQuery] = useState('');
+  const [activeNlpQuery, setActiveNlpQuery] = useState('');
   const [timelineLogs, setTimelineLogs] = useState<AuditLog[] | null>(null);
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isTimelineView, setIsTimelineView] = useState(false);
   const [directIdLookup, setDirectIdLookup] = useState('');
+  const [lastAction, setLastAction] = useState<'UI' | 'NLP'>('UI');
 
   const loadLogs = useCallback(async () => {
     setIsLoading(true);
     try {
       if (isTimelineView) {
-        // Timeline view logic
         const data = await getTimeline(filters.userId, filters.sessionId);
         setTimelineLogs(data);
-      } else {
-        // Table view logic
-        const data = await getLogs(filters);
-        setLogsResult(data);
+        return;
       }
+
+      // 1. Build standard filters payload
+      const params = new URLSearchParams();
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          params.append(key, String(value));
+        }
+      });
+
+      // 2. Determine Endpoint & Apply Priority
+      let url = `${API_BASE_URL}/audit?${params.toString()}`;
+      
+      if (activeNlpQuery && activeNlpQuery.trim() !== '') {
+        params.append('query', activeNlpQuery.trim());
+        params.append('priority', lastAction); // Tells C# who wins a clash ('UI' or 'NLP')
+        url = `${API_BASE_URL}/audit/search/nlp?${params.toString()}`;
+      }
+
+      // 3. Fetch Unified Data
+      const response = await fetch(url, { headers: getHeaders() });
+      if (!response.ok) throw new Error('Failed to fetch unified logs');
+      
+      const data = await response.json();
+      
+      // 4. Standardize the result shape for your table
+      const currentPageSize = filters.pageSize || 15;
+      setLogsResult({
+        items: data.items || data.data,
+        totalCount: data.totalCount,
+        page: data.currentPage || data.page,
+        pageSize: currentPageSize,
+        totalPages: data.totalPages
+      });
+      
     } catch (err) {
-      console.error(err);
+      console.error("Unified load failed:", err);
     } finally {
       setIsLoading(false);
     }
-  }, [filters, isTimelineView]);
+  }, [filters, isTimelineView, activeNlpQuery, lastAction]); // Dependencies updated!
 
   useEffect(() => {
     loadLogs();
   }, [loadLogs]);
 
   const handleFilterChange = (newFilters: SearchFilters) => {
+    setLastAction('UI'); // The user clicked a dropdown! UI wins!
     setFilters((prev) => ({ ...prev, ...newFilters, page: 1 }));
   };
 
@@ -112,6 +137,7 @@ const Dashboard: React.FC = () => {
   };
 
   const handleSort = (field: string) => {
+    setLastAction('UI');
     setFilters((prev) => ({
       ...prev,
       sortBy: field,
@@ -156,7 +182,28 @@ const Dashboard: React.FC = () => {
   };
 
   const activeUser = localStorage.getItem('audit_active_user') || 'Guest';
+  const displayedLogs = logsResult.items;
+  const handleNlpSearch = async (e?: React.FormEvent, targetPage: number = 1) => {
+    if (e) e.preventDefault();
+    if (!nlpQuery.trim()) return;
 
+    setLastAction('NLP'); // The user clicked AI search! NLP wins!
+    setActiveNlpQuery(nlpQuery.trim()); // Only update this when they hit Search!
+    
+    // Just update the page filter; loadLogs will automatically run and route it to the NLP endpoint
+    setFilters((prev) => ({ ...prev, page: targetPage })); 
+  };
+
+  const handleRefresh = () => {
+    if (activeNlpQuery.trim() !== '' || nlpQuery.trim() !== '') {
+      setNlpQuery('');
+      setActiveNlpQuery('');
+      setLastAction('UI');
+      setFilters(DEFAULT_FILTERS);
+    } else {
+      loadLogs();
+    }
+  };
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-main)' }}>
       <Sidebar activePage="dashboard" />
@@ -189,8 +236,21 @@ const Dashboard: React.FC = () => {
                 Lookup
               </button>
             </form>
+            <form onSubmit={handleNlpSearch} style={{ display: 'flex', gap: '6px', marginLeft: '12px' }}>
+              <input
+                type="text"
+                placeholder="e.g., get the modules of type event"
+                value={nlpQuery}
+                onChange={(e) => setNlpQuery(e.target.value)}
+                className="input-field"
+                style={{ width: '250px', padding: '8px 12px', fontSize: '13px', height: '38px', border: '1px solid var(--accent-purple)' }}
+              />
+              <button type="submit" className="btn btn-primary" style={{ padding: '8px 14px', fontSize: '13px', height: '38px', background: 'var(--accent-purple)' }}>
+                AI Search
+              </button>
+            </form>
 
-            <button onClick={loadLogs} className="btn btn-secondary" disabled={isLoading} style={{ height: '38px' }}>
+            <button onClick={handleRefresh} className="btn btn-secondary" disabled={isLoading} style={{ height: '38px' }}>
               <RefreshCw size={14} className={isLoading ? 'spin' : ''} />
               Refresh Logs
             </button>
@@ -244,11 +304,11 @@ const Dashboard: React.FC = () => {
               onReset={() => setFilters(DEFAULT_FILTERS)}
             />
             <LogTable
-              items={logsResult.items}
+              items={displayedLogs} 
               onSelectLog={setSelectedLog}
               onSort={handleSort}
-              sortBy={filters.sortBy}
-              isAscending={filters.isAscending}
+              sortBy={filters.sortBy || 'Timestamp'} 
+              isAscending={filters.isAscending ?? false} 
             />
 
             {/* Pagination footer */}

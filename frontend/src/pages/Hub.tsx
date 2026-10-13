@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Users, Send, Heart, Trash2, RefreshCw, Hash } from 'lucide-react';
 import type { Post } from '../types';
 import Sidebar from '../components/Sidebar';
+import {API_BASE_URL} from '../config';
 
-const API_BASE_URL = 'http://localhost:5081/api';
+// const API_BASE_URL = 'http://localhost:5081/api';
 
 const Hub: React.FC = () => {
   const [posts, setPosts] = useState<Post[]>([]);

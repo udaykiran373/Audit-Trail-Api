@@ -5,7 +5,6 @@ export interface AuditLog {
   sessionId: string;
   eventType: string;
   module: string;
-  action: string;
   status: string;
   correlationId: string;
   requestPath: string | null;
